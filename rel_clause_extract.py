@@ -12,29 +12,7 @@ import string
 from nltk.parse import CoreNLPParser
 import pandas as pd
 
-
-def compile_pattern(word_pattern):  # pattern is lowercase
-    pattern = word_pattern.strip()
-    pattern = pattern.replace("\ufeff", "")
-    pattern = pattern.replace("???", "")
-    pattern = pattern.replace(" ", "")
-    pattern = pattern.replace("xxx", "")
-    if pattern.startswith("*"):
-        pattern = '.*' + pattern[1:]
-    else:
-        pattern = "^" + pattern
-    if pattern.endswith("*"):
-        pattern = pattern[:-1] + '.*'
-    else:
-        pattern = pattern + "$"
-    pattern = pattern.replace("[", "\[")  # escape this special symbol for matching
-    pattern = pattern.replace("]", "\]")
-    pattern = pattern.replace("ge", "ge?")  # saf5
-    # pattern = pattern.lower()
-    # compile variant into pattern
-    compiled_pattern = regex.compile(pattern)
-    # what about re?
-    return compiled_pattern
+from SWG_utils import compile_pattern
 
 
 def read_lex_table(lex_table_path):

@@ -5,12 +5,11 @@ import os
 import re
 import traceback
 import pandas as pd
-import regex
 import textgrid
 from nltk import CoreNLPParser
 from ordered_set import OrderedSet
 
-from SWG_utils import timestamp_convert
+from SWG_utils import timestamp_convert, skip_word_list, skip_by_tags, compile_pattern
 
 
 def create_word_csv(speaker_paths, word_extract_path, lex_table, filename_annotation_map):
@@ -150,9 +149,7 @@ def read_tg_files(speaker_path): # read the words in filtered, return a counter 
     filter_list = [person_name_l, person_name_r, hyphen, hyphen_2, double_dash, dash_l, dash_r, dot_2, question_2, quo_2]
 
     annotations_list = []
-    filename_annotation_map = dict() # maybe get the start time and word count here
-    # word count for the actual token or the word filler as well?
-    # maybe should start with the clause extract
+    filename_annotation_map = dict()
     for speaker in speaker_path:
         file_list = [file for file in os.listdir(speaker) if file.endswith('.TextGrid')]
         for file_name in file_list:
@@ -174,17 +171,25 @@ def read_tg_files(speaker_path): # read the words in filtered, return a counter 
                     tier_swg = each_tier
                     intervals_swg = tier_swg.intervals
             try:
+                time_segment = dict()
                 for each_annotation in intervals_swg:
                     annotation_mark = each_annotation.mark
                     beg_hms = timestamp_convert(each_annotation.minTime)
+                    # where is the filter
+                    # dict: beg_hms: original segments
+                    # list: filtered annotation + beg_hms
+                    # search and label moving the index
                     if not annotation_mark.strip(): continue
                     word_annotations = []
                     punct = [',', '.', '!', '?']  # maybe just . ! ?
                     # word_raw_counter.update(annotation_mark.split())  # what is this for?
-                    anno_raw = annotation_mark.split()
-                    anno = anno_filter(anno_raw, hyphen_3)
-
+                    tokens = annotation_mark.split()
+                    time_segment[beg_hms] = tokens
+                    anno = anno_filter(tokens, hyphen_3)
+                    # or should I just
                     for word_raw in anno:
+                        # I need to test the filters
+                        # I wonder the effect of these
                         word_raw = word_raw.replace(":", "")
                         word_raw = word_raw.replace('"', '')
                         word_raw = word_raw.replace('…', '')
@@ -223,79 +228,6 @@ def read_tg_files(speaker_path): # read the words in filtered, return a counter 
     return word_counter, filename_annotation_map
 
 
-def skip_by_tags(outputs, type):
-    start_index = -1
-    end_index = -1
-    if type == 'r':
-        begin_label = "[BEGIN-READING]"
-        end_label = "[END-READING]"
-    elif type == 'wl':
-        begin_label = "[BEGIN-WORD-LISTS]"
-        end_label = "[END-WORD-LISTS]"
-    elif type == 'wg':
-        begin_label = "[BEGIN-WORD-GAMES]"
-        end_label = "[END-WORD-GAMES]"
-    for i, output in enumerate(outputs):
-        # the numbers are off? probably
-        if begin_label in output[2] and start_index == -1:
-            start_index = i
-        if end_label in output[2] and end_index == -1:
-            end_index = i
-    if start_index != -1 and end_index != -1:
-        print([output[2] for output in outputs[start_index: end_index+1]])
-        print(len([output[2] for output in outputs[start_index: end_index+1]]))
-        outputs = outputs[0:start_index] + outputs[end_index+1:]
-        skip_by_tags(outputs, type)
-    if start_index == -1 and end_index != -1:
-        print(begin_label, "not found!")
-    if end_index == -1 and start_index != -1:
-        print(end_label, "not found!")
-
-    return outputs
-
-
-def skip_word_list(outputs, word_list_start, word_list_end, type):
-    start_index = -1
-    end_index = -1
-    for i, output in enumerate(outputs):
-        if output[2] in word_list_start:  # or output[4] in word_list_end
-            s_idx = word_list_start.index(output[2])
-            output_list_start = [output[2] for output in outputs[i-s_idx:i-s_idx+10]]
-            #print(output_list_start)
-            match_boolean_start = []
-            if type == 'wl':
-                match_boolean_start = [True for x in output_list_start if x in word_list_start]  # order does not matter
-            elif type =='ft':
-                match_boolean_start = [True for i, x in enumerate(output_list_start) if x in word_list_start[i-1:i+2]]
-                # the order matters and when filler words are missing, it need to be matched between a small range.
-            if sum(match_boolean_start) > 5 and start_index == -1:
-                #print(match_boolean_start)
-                #print(sum(match_boolean_start))
-                start_index = i-s_idx
-        if output[2] in word_list_end:  # or output[4] in word_list_end
-            e_idx = word_list_end.index(output[2])
-            output_list_end = [output[2] for output in outputs[i-e_idx:i-e_idx+10]]
-            #print(output_list_end)
-            match_boolean_end =[]
-            if type == 'wl':
-                match_boolean_end = [True for x in output_list_end if x in word_list_end]
-            elif type == 'ft':
-                match_boolean_end = [True for i, x in enumerate(output_list_end) if x in word_list_end[i-1:i+2]] # range matchint
-                # maybe also combine the files for one speaker in one output and then process it for Bertha
-                # Alfried
-            if sum(match_boolean_end) > 5:
-                #print(match_boolean_end)
-                #print(sum(match_boolean_end))
-                end_index = i-e_idx+9
-    print([output[2] for output in outputs[start_index: end_index+1]])
-    print(len([output[2] for output in outputs[start_index: end_index+1]]))
-    print(len(outputs))
-    if start_index != -1 and end_index != -1:
-        outputs = outputs[0:start_index] + outputs[end_index+1:]
-    print(len(outputs))
-    return outputs
-
-
 def create_word_counter(list_annotations):
     word_counter = collections.Counter()
     for annotation in list_annotations:
@@ -303,7 +235,7 @@ def create_word_counter(list_annotations):
     return word_counter
 
 
-def append_to_word_extract(transcript_id, word, DDM, std, pos):# should also clean this code a bit
+def append_to_word_extract(transcript_id,beg_hms, sym_seq, word, DDM, std, pos):# should also clean this code a bit
     with open(word_extract_path, mode='a', newline="") as word_extract_output:
         csv_writer = csv.writer(word_extract_output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         csv_writer.writerow([transcript_id, beg_hms, sym_seq, word, DDM, std, pos])
@@ -316,27 +248,7 @@ def append_to_lex(word_stem, word_lemma, word_standard, word_variant, word_vars,
             [word_stem, word_lemma, word_standard, word_variant, word_vars, word_english, POS, word_MHG, word_stem_freq, word_lemma_freq, word_standard_freq, word_variant_freq])
 
 
-def compile_pattern(word_pattern):  # pattern is lowercase
-    pattern = word_pattern.strip()
-    pattern = pattern.replace("\ufeff", "")
-    pattern = pattern.replace("???", "")
-    pattern = pattern.replace(" ","")
-    pattern = pattern.replace("xxx","")
-    if pattern.startswith("*"):
-        pattern = '.*' + pattern[1:]
-    else:
-        pattern = "^" + pattern
-    if pattern.endswith("*"):
-        pattern = pattern[:-1] + '.*'
-    else:
-        pattern = pattern + "$"
-    pattern = pattern.replace("[", "\[")  # escape this special symbol for matching
-    pattern = pattern.replace("]", "\]")
-    pattern = pattern.replace("ge", "ge?") # saf5 # maybe generate doch dieser neue line/pattern for the [ge] words
-    # compile variant into pattern
-    compiled_pattern = regex.compile(pattern)
-    # what about re?
-    return compiled_pattern
+
 
 
 def get_count(pattern, word_counter): # need to update for stem and lemmas. Do it here or else where?

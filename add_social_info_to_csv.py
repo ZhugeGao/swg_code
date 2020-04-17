@@ -12,9 +12,8 @@ class AddSocialInfo:
         self.df_social_info = pandas.read_csv(
             social_info_path, encoding='utf-8-sig', header=0)
 
+
     def read_name(self):
-        # self.df_extract.astype(str)
-        # self.df_social_info.astype(str)
         self.df_extract = pandas.merge(
             self.df_extract,
             self.df_social_info,
@@ -28,6 +27,7 @@ class AddSocialInfo:
 
 
 if __name__ == '__main__':
+    # import the method in the main class
     date_type = '20200408' + 'noSocialInfo' + '.csv'
     extract_type = 'words'
     speakers = ['twin', 'trend', 'panel']

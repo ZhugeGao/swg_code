@@ -12,7 +12,7 @@ import string
 from nltk.parse import CoreNLPParser
 import pandas as pd
 
-from SWG_utils import compile_pattern
+from SWG_utils import compile_pattern, timestamp_convert
 
 
 def read_lex_table(lex_table_path):
@@ -65,11 +65,16 @@ class Transform:
                 print(v_pattern) # add it? no
             variant_match[v_pattern].append(r)
         gehen_variants = set()
-        for gehen_row in lex_table.loc[lex_table['word_lemma'] == 'gehen']['word_variant']:
-            # check the word_vars
-            if not any("SAF5" in wv for wv in lex_table.loc[lex_table['word_variant'] == gehen_row]['word_vars']):
-                g_pattern = compile_pattern(gehen_row)
+        locations = lex_table.loc[lex_table['word_lemma'] == 'gehen']
+        for gehen_var in zip(locations['word_variant'], locations['word_vars']):
+            if "SAF5" not in gehen_var[1]:
+                g_pattern = compile_pattern(gehen_var[0])
                 gehen_variants.add(g_pattern)
+        # for gehen_row in lex_table.loc[lex_table['word_lemma'] == 'gehen']['word_variant']:
+        #     # check the word_vars
+        #     if not any("SAF5" in wv for wv in lex_table.loc[lex_table['word_variant'] == gehen_row]['word_vars']):
+        #         g_pattern = compile_pattern(gehen_row)
+        #         gehen_variants.add(g_pattern)
         for each_file_name in file_list:
             # now combine the files of the same speakers
             print(each_file_name)
@@ -168,7 +173,7 @@ class Transform:
                                         elif "als" in word or word.startswith("d") or word.startswith(
                                                 "wel") or word.startswith("jed"):
                                             rel_var = " RELs"
-                                        elif "was" in word or "wie" in word:
+                                        elif ("was" in word) or ("wie" in word) or ("wer" in word):
                                             rel_var = " RLOs"
                                         else:
                                             rel_var = " UNK"
@@ -212,7 +217,10 @@ class Transform:
                                                 print(ddm)
                                     pos = " ".join(str(p) for p in pos_list)
                                 if rel:
-                                    ddm = ddm + rel_var
+                                    if ddm != "*":
+                                        ddm = ddm + rel_var
+                                    else:
+                                        ddm = rel_var
                                     ddm = ddm.strip()
                             words_std.append(standard)
                             ddm_tags.append(ddm)
@@ -253,35 +261,20 @@ class Transform:
         create_the_csv.close()
 
 
-def timestamp_convert(ts):
-    ts_list = str(ts).split('.')
-    remaining_seconds = int(ts_list[0])
-    ms = int(ts_list[1])
-    hour = 0
-    minute = 0
-    if remaining_seconds >= 3600:
-        hour = remaining_seconds // 3600
-        remaining_seconds = remaining_seconds - (hour * 3600)
-    if remaining_seconds >= 60:
-        minute = remaining_seconds // 60
-        remaining_seconds = remaining_seconds - (minute * 60)
-    second = remaining_seconds
-    # could try gmtime or other python time function
-    timestamp = datetime.time(hour, minute, second, ms).strftime('%H:%M:%S.%f')
-    return timestamp
-
-
 if __name__ == '__main__':
     # try to automate all of this
     # try to merge everything in to one class
     # or have a separate helper class for all
     # extract_type
-    date_type = '20200403'+'noSocialInfo'+'.csv'
+    date = '20200622'
+    types = 'noSocialInfo' + '.csv'
     common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
     # simplify this
-    speaker_tg_path = {'SWG_panel_clauses_rel_'+date_type:[common_path+'recovery_1982/',common_path+'recovery_2017/']
-        , 'SWG_trend_clauses_rel_'+date_type:[common_path+'trend_tg/'], 'SWG_twin_clauses_rel_'+date_type:[common_path+'twin_tg/']}
-    lex_table_path = common_path+'SG-LEX 04mar2020.csv'
+    extract_type = 'clauses_rel'
+    speaker_tg_path = {'SWG_style_' + extract_type + '_' + date + types: [common_path + 'style_tg/']}
+    # speaker_tg_path = {'SWG_panel_clauses_rel_'+date_type:[common_path+'recovery_1982/',common_path+'recovery_2017/'], 'SWG_trend_clauses_rel_'+date_type:[common_path+'trend_tg/']}  #
+    #'SWG_twin_clauses_rel_'+date_type:[common_path+'twin_tg/']
+    lex_table_path = common_path+'SG-LEX 21apr2020.csv'
     done_path = common_path+"done/"
 
     for extract_name in speaker_tg_path.keys():

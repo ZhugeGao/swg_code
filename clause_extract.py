@@ -12,6 +12,7 @@ import pandas as pd
 import regex
 import textgrid
 from nltk.parse import CoreNLPParser
+from SWG_utils import read_lex_table, compile_pattern
 
 
 class Transform:
@@ -52,11 +53,16 @@ class Transform:
                 print(v_pattern) # add it? no
             variant_match[v_pattern].append(r)
         gehen_variants = set()
-        for gehen_row in lex_table.loc[lex_table['word_lemma'] == 'gehen']['word_variant']:
-            # check the word_vars
-            if not any("SAF5" in wv for wv in lex_table.loc[lex_table['word_variant'] == gehen_row]['word_vars']):
-                g_pattern = compile_pattern(gehen_row)
+        locations = lex_table.loc[lex_table['word_lemma'] == 'gehen']
+        for gehen_var in zip(locations['word_variant'], locations['word_vars']):
+            if "SAF5" not in gehen_var[1]:
+                g_pattern = compile_pattern(gehen_var[0])
                 gehen_variants.add(g_pattern)
+        # for gehen_row in lex_table.loc[lex_table['word_lemma'] == 'gehen']['word_variant']:
+        #     # check the word_vars
+        #     if not any("SAF5" in wv for wv in lex_table.loc[lex_table['word_variant'] == gehen_row]['word_vars']):
+        #         g_pattern = compile_pattern(gehen_row)
+        #         gehen_variants.add(g_pattern)
         for each_file_name in file_list:
             # now combine the files of the same speakers
             print(each_file_name)
@@ -254,40 +260,6 @@ class Transform:
                 ['trans_id','beg_hms', 'sym_seq', 'SWG', 'VAR', 'POS']) # File_ID to Transcript_ID
         create_the_csv.close()
 
-def compile_pattern(word_pattern):  # pattern is lowercase
-    pattern = word_pattern.strip()
-    pattern = pattern.replace("\ufeff", "")
-    pattern = pattern.replace("???", "")
-    pattern = pattern.replace(" ","")
-    pattern = pattern.replace("xxx","")
-    if pattern.startswith("*"):
-        pattern = '.*' + pattern[1:]
-    else:
-        pattern = "^" + pattern
-    if pattern.endswith("*"):
-        pattern = pattern[:-1] + '.*'
-    else:
-        pattern = pattern + "$"
-    pattern = pattern.replace("[", "\[")  # escape this special symbol for matching
-    pattern = pattern.replace("]", "\]")
-    pattern = pattern.replace("ge", "ge?") # saf5
-    #pattern = pattern.lower()
-    # compile variant into pattern
-    compiled_pattern = regex.compile(pattern)
-    # what about re?
-    return compiled_pattern
-
-def read_lex_table(lex_table_path):
-    if lex_table_path.endswith(".xlsx"):
-        lex = pd.read_excel(lex_table_path, index_col=None, header=0)
-    else:
-        lex = pd.read_csv(lex_table_path, index_col=None, header=0)
-    lex.dropna(axis='columns', how='all', inplace=True)
-    print(lex.columns)
-    # lex.drop(['word_POS'], axis=1, inplace=True)
-    # print(lex.columns)
-    return lex
-
 
 def timestamp_convert(ts):
     ts_list = str(ts).split('.')
@@ -308,12 +280,14 @@ def timestamp_convert(ts):
 
 
 if __name__ == '__main__':
-    date_type = '20200403' + 'noSocialInfo' + '.csv'
+    date = '20200622'
+    types =  'noSocialInfo' + '.csv'
     common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
-    speaker_tg_path = {'SWG_panel_clauses_' + date_type: [common_path + 'recovery_1982/', common_path + 'recovery_2017/']
-        , 'SWG_trend_clauses_' + date_type: [common_path + 'trend_tg/'],
-        'SWG_twin_clauses_' + date_type: [common_path + 'twin_tg/']}
-    lex_table_path = common_path + 'SG-LEX 04mar2020.csv'
+    extract_type = 'clauses'
+    speaker_tg_path = {'SWG_style_' + extract_type + '_' + date + types: [common_path + 'style_tg/']}
+    # speaker_tg_path = {'SWG_panel_clauses_' + date_type: [common_path + 'recovery_1982/', common_path + 'recovery_2017/'] , 'SWG_trend_clauses_' + date_type: [common_path + 'trend_tg/']}  #
+    # 'SWG_twin_clauses_' + date_type: [common_path + 'twin_tg/']
+    lex_table_path = common_path + 'SG-LEX 21apr2020.csv'
     done_path = common_path + "done/"
 
     for extract_name in speaker_tg_path.keys():

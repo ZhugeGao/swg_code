@@ -12,7 +12,6 @@ class AddSocialInfo:
         self.df_social_info = pandas.read_csv(
             social_info_path, encoding='utf-8-sig', header=0)
 
-
     def read_name(self):
         self.df_extract = pandas.merge(
             self.df_extract,
@@ -28,13 +27,13 @@ class AddSocialInfo:
 
 if __name__ == '__main__':
     # import the method in the main class
-    date_type = '20200408' + 'noSocialInfo' + '.csv'
-    extract_type = 'words'
-    speakers = ['twin', 'trend', 'panel']
+    date_type = '20200622' + 'noSocialInfo' + '.csv'
+    extract_type = 'clauses_rel'
+    speakers = ['style']  # 'twin','panel', 'trend'
     common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
     for speaker_type in speakers:
         extract_name = 'SWG_'+speaker_type+'_'+extract_type+'_'+date_type
-        socialInfo_name = 'swg_'+speaker_type+'_speakers_09mar2020.csv'  # need to change in case date changes
+        socialInfo_name = 'SWG_'+speaker_type+'_speakers_20jun2020.csv'  # need to change in case date changes
         social_info_path = common_path + socialInfo_name
         extract_path_no_info = common_path + extract_name
         addSocialInfo = AddSocialInfo(extract_path_no_info, social_info_path)  # change names

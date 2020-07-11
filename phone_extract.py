@@ -6,11 +6,13 @@ import math
 import os
 import errno
 import csv
+import string
+
 import textgrid
 import traceback
-import regex
+import re
 from nltk import CoreNLPParser
-
+import pandas as pd
 from SWG_utils import compile_pattern, read_lex_table, word_filter
 
 
@@ -20,10 +22,12 @@ class Transform:
         self.rootpath = rootpath
         self.outputpath = outputpath
         self.lex_table = lex
+        self.tags = {'[BEGIN-READING]': '[END-READING]', '[BEGIN-WORD-LISTS]': '[END-WORD-LISTS]',
+                     '[BEGIN-WORD-GAMES]': '[END-WORD-GAMES]'}
 
     def start(self):
         try:
-            os.chdir(source_path)
+            os.chdir(self.rootpath)
         except FileNotFoundError:
             print(errno.EPERM)
         if not os.path.exists(output_path):
@@ -32,12 +36,12 @@ class Transform:
 
     def get_file_list(self):
         file_list = [file for file in os.listdir(self.rootpath) if file.endswith('.TextGrid')]
-        file_list = sorted(file_list, key=lambda x: int(x.split('_')[1][:-9]))
+        file_list = sorted(file_list, key=lambda x: (int(x.split('-')[0][1:]), int(x.split('-')[3]), int(x.split('_')[1][:-9]))) # sort by speaker id and the split number
         self.read_from_textgrid(file_list)
 
     def read_from_textgrid (self, file_list):
         pos_tagger = CoreNLPParser('http://localhost:9002', tagtype='pos')
-        print(file_list)
+        table = str.maketrans(dict.fromkeys(string.punctuation))
         variant_match = dict()
         for r in zip(self.lex_table['word_variant'], self.lex_table['word_standard'], self.lex_table['word_vars'],
                      self.lex_table['POS_tag']):
@@ -46,8 +50,8 @@ class Transform:
             v_pattern = compile_pattern(r[0])
             if v_pattern not in variant_match.keys():
                 variant_match[v_pattern] = []
-            else:
-                print(v_pattern)
+            # else:
+            #     print(v_pattern)
             variant_match[v_pattern].append(r)
 
         gehen_variants = set()
@@ -56,17 +60,44 @@ class Transform:
             if "SAF5" not in gehen_var[1]:
                 g_pattern = compile_pattern(gehen_var[0])
                 gehen_variants.add(g_pattern)
-        # maybe I should just get it from the other table.
+
         for each_file_name in file_list:
-            print("filename:", each_file_name)
-            # outputs = []
+            original_words = read_txt(self.rootpath, each_file_name)
+            context = []
+            rel = False
+            tag_pattern = re.compile("\[[^\[\]]*\]")
+            # collect all the tags
+            tags = []
+            for i, ow in enumerate(original_words):
+                find_tag = re.search(tag_pattern, ow)
+                # there could be more than one [REL] tag in there.  S016-17-I-1-Manni_692. ['der', '[REL]', 'halt', 'e', 'groß---', '-eh-', 'dessen', '[REL', 'Garten', 'groß']
+                if find_tag:
+                    tag = find_tag.group(0)
+                    tags.append(tag)
+                    # print(tag)
+                elif "[" in ow or "]" in ow:
+                    print("missed tag in:", each_file_name)
+                    print(ow)
+                    print(original_words)
+            if tags:
+                for tag in tags:
+                    if tag == '[REL]':
+                        rel = True
+                        context.append(original_words[i-1].translate(table))
+                        if len(original_words) > i+1:
+                            context.append(original_words[i+1].translate(table))
+                    elif tag in self.tags.keys():
+                        pass
+                        # skip. save the tag and it's context?
+            # print("filename:", each_file_name)
             interval_num = 0
-            file_path = source_path + each_file_name
+            file_path = self.rootpath + each_file_name
             try:
                 file_textgrid_obj = textgrid.TextGrid.fromFile(file_path)
-            except UnicodeDecodeError:
-                print(each_file_name + ': the encode is weird, not utf-8 or ansi')
-
+            except ValueError:
+                print(each_file_name +'value error has occured')
+                os.rename(self.rootpath+ each_file_name, common_path + each_file_name)
+                continue
             tier_list = file_textgrid_obj.tiers
 
             for each_tier in tier_list:
@@ -80,25 +111,59 @@ class Transform:
             count = 0
 
             try:
-                for i, each_word in enumerate(intervals_words): # this is different
-                    # I don't even know what the data would look like. is it going to be in order?
-                    # so I need to start over.
+                for i, each_word in enumerate(intervals_words):
+                    add_rel = False
                     word_start_time = each_word.minTime
                     word_end_time = each_word.maxTime
                     word_mark = each_word.mark
-                    if (each_file_name, str(count)) in symbol_map.keys():
-                        # print(each_file_name)
-                        value = symbol_map[(each_file_name, str(count))]
-                        if value[0] == 'dash' and word_mark == value[1]:
-                            word_mark = '-'+word_mark+'-'
+                    if word_mark not in original_words and "<" not in word_mark:
+                        match = [ow.translate(table) for ow in original_words if word_mark == clean_word(ow)]
+                        if not match:
+                            continue  # some words just turned to h. for unknown reason
+                            # print(word_mark)
+                            # print(original_words)
+                            # print(each_file_name)
+                        else:
+                            word_mark = match[0]
+                    if rel:
+                        if word_mark == context[0] or word_mark == clean_word(context[0]):
+                            if len(context) > 1 and (intervals_words[i+1].mark.translate(table) != context[1] or intervals_words[i+1].mark.translate(table) != clean_word(context[1])):
+                                print(context)
+                                # print(intervals_words[i+1].mark)
+                                print(word_mark)
+                            else:
+                                add_rel = True # maybe not do it here is better
+                                if "wo" in word_mark:
+                                    rel_var = " RELd"
+                                elif "als" in word_mark or word_mark.startswith("d") or word_mark.startswith("wel") or word_mark.startswith("jed"):
+                                    rel_var = " RELs"
+                                elif ("was" in word_mark) or ("wie" in word_mark) or ("wer" in word_mark):
+                                    rel_var = " RLOs"
+                                else:
+                                    rel_var = " UNK"
+                        else:
+                            print(context)
+                            # print(intervals_words[i+1].mark)
                             print(word_mark)
-                        elif value[0] == 'person' and word_mark == value[1]: # and other matched filtered regex
-                            word_mark = '{removed}'
-                        elif value[0] == 'other' and word_mark == value[1]:
-                            word_mark = "'''removed'''"
-                    else:
-                        word_mark = self.recover(word_mark)
-                    # ignore all the filter and other stuff...
+                    # # if (each_file_name, str(count)) in symbol_map.keys():
+                    # #     # print(each_file_name)
+                    # #     # there will be no symbol map
+                    # #     value = symbol_map[(each_file_name, str(count))]
+                    # #     if value[0] == 'dash' and word_mark == value[1]:
+                    # #         word_mark = '-'+word_mark+'-'
+                    # #         print(word_mark)
+                    # #     elif value[0] == 'person' and word_mark == value[1]: # and other matched filtered regex
+                    # #         word_mark = '{removed}'
+                    # #     elif value[0] == 'other' and word_mark == value[1]:
+                    # #         word_mark = "'''removed'''"
+                    # #     double_dash = regex.compile("-[a-zA-ZäöüÄÖÜß]+-")
+                    # #     half_word = regex.compile("[a-zA-ZäöüÄÖÜß]+---")
+                    # #     person_name = regex.compile("{[a-zA-ZäöüÄÖÜß]+}")
+                    # #     other_name = regex.compile("'''[a-zA-ZäöüÄÖÜß]+'''")
+                    # # else:
+                    # #     pass
+                    #     # this is where you get the recovered words from the txt
+                    # # ignore all the filter and other stuff...
                     std_list = set()
                     ddm_list = set()
                     pos_list = set()
@@ -125,15 +190,16 @@ class Transform:
                     else:
                         word_german = " ".join(std_list)
                         var_code = " ".join(str(d) for d in ddm_list)
-                        # maybe here is the problem
                         if any("SAF5" in d for d in ddm_list):
                             # print(ddm) # right, this
                             for g_pattern in gehen_variants:
                                 if g_pattern.search(word_mark) is not None:
-                                    ddm = ddm.replace("SAF5d", "")
-                                    ddm = ddm.replace("SAF5s", "")
+                                    var_code = var_code.replace("SAF5d", "")
+                                    var_code = var_code.replace("SAF5s", "")
                         pos_tag = " ".join(str(p) for p in pos_list)
-
+                    if add_rel:
+                        var_code = var_code + rel_var
+                        var_code = var_code.strip()
                     try:
                         while (intervals_segments[interval_num].minTime >= word_start_time) & \
                                 (intervals_segments[interval_num].maxTime <= word_end_time):
@@ -143,7 +209,6 @@ class Transform:
                             self.output_as_csv(each_file_name[:-9],
                                                word_start_time, word_end_time, word_mark, segment_start_time,
                                                segment_end_time, segment_mark, var_code, word_german, pos_tag)
-                            # word_swg, segment_swg
                             interval_num += 1
                     except IndexError:
                         interval_num = 0
@@ -153,26 +218,6 @@ class Transform:
             except AttributeError as e:
                 print(each_file_name+': tier words is empty or does not exist ')
                 traceback.print_tb(e.__traceback__)
-
-
-    def recover(self, word_string):
-        word_string = word_string.replace("aE", "ä")
-        word_string = word_string.replace("oE", "ö")
-        word_string = word_string.replace("uE", "ü")
-        word_string = word_string.replace("sS", "ß")
-        word_string = word_string.replace("AE", "Ä")
-        word_string = word_string.replace("OE", "Ö")
-        word_string = word_string.replace("UE", "Ü")
-
-        word_string = word_string.replace("aA", "â")
-        word_string = word_string.replace("AA", "Â")
-        word_string = word_string.replace("aN", "ã")
-        word_string = word_string.replace("AN", "Ã")
-        word_string = word_string.replace("oY", "ôi")
-        word_string = word_string.replace("OY", "Ôi")
-        word_string = word_string.replace("eY", "êi")
-        word_string = word_string.replace("EY", "Êi")
-        return word_string
 
     def output_as_csv (self, trans_id, word_start_time, word_end_time, word_swg, segment_start_time, segment_end_time, segment_swg, var_code, word_german, pos_tag):
         with open(output_path, mode = 'a', newline="") as output_file:
@@ -190,31 +235,54 @@ class Transform:
         create_the_csv.close()
 
 
+def read_txt(source_path, file_name):
+    # phrase_dict = dict()
+    # file_list = [file for file in os.listdir(source_path) if file.endswith('.txt') and file_name in file]
+    # file_list = sorted(file_list, key=lambda x: int(x.split('_')[1][:-4]))
+    # print(file_list)
+    # for file in file_list:
+    with open(source_path+file_name[:-9]+'.txt', 'r', newline="") as f:
+        phrases = f.read().split()
+    return phrases
 
 
-def read_record():
-    the_symbol_map = {}
-    with open(record_path) as record:
-        record_reader = csv.reader(record)
-        next(record_reader)
-        for record_lines in record_reader:
-            the_symbol_map[(record_lines[0], record_lines[1])] = (record_lines[3], record_lines[2])
-    return the_symbol_map
+
+def clean_word(word):
+    word = word.replace("#", "")
+    word = word.replace('ê', 'e')
+    word = word.replace('ã', 'a')
+    word = word.replace('â', 'a')
+    word = word.replace('ô', 'o')
+    word = word.replace('ß', 'ss')
+    word = word.replace('ä', 'ae')
+    word = word.replace('ö', 'oe')
+    word = word.replace('ü', 'ue')
+    word = word.replace('-', '')
+    word = word.replace('!', '')
+    word = word.replace('?', '')
+    word = word.replace(',', '')
+    word = word.replace('.', '')
+    word = word.replace('"', '')
+    word = word.replace("'", '')
+    word = word.replace('{', '')
+    word = word.replace('}', '')
+    word = re.sub("[\[].*?[\]]", "", word)
+
+    return word
 
 
 if __name__ == '__main__':
-    record_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/symbol_record.csv'
-    source_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/done_panel/'
+    common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
+    speaker_donepath = {'panel':[common_path + 'done_panel/1982/', common_path + 'done_panel/2017/']}
     speaker = 'panel'
     extract_type = 'phone'
-    date = '20200701'
+    date = '20200707'
     types = 'noSocialInfo' + '.csv'
-    output_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/SWG_'+speaker+'_'+extract_type+'_'+date+types
-    lex_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/SG-LEX 21apr2020.csv'
-    # done_path = ""
+    output_path = common_path + 'SWG_'+speaker+'_'+extract_type+'_'+date+types
+    lex_path = common_path + 'SG-LEX 21apr2020.csv'
 
-    symbol_map = read_record()
     # read lex table
     lex = read_lex_table(lex_path)
-    transform = Transform(source_path, output_path, lex)
-    transform.start()
+    for source_path in speaker_donepath[speaker]:
+        transform = Transform(source_path, output_path, lex)
+        transform.start()

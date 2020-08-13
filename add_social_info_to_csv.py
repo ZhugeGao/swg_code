@@ -9,7 +9,7 @@ class AddSocialInfo:
         self.phone = False
         self.df_extract = pandas.read_csv(
             extract_path, encoding='utf-8-sig', header=0)
-        if "phone" in extract_path:
+        if "phone" in extract_path or "formant" in extract_path:
             self.phone = True
             self.df_extract = self.df_extract.rename(columns={"trans_id": "id"})
             self.df_extract['trans_id'] = self.df_extract['id'].apply(self.recover_trans_id)
@@ -37,12 +37,11 @@ class AddSocialInfo:
         return id.split("_")[0]
 
 
-
 if __name__ == '__main__':
     # import the method in the main class
-    date_type = '20200707' + 'noSocialInfo' + '.csv'
-    extract_type = 'phone'
-    speakers = ['panel']  # 'twin','panel', 'trend'
+    date_type = '20200730' + 'noSocialInfo' + '.csv' #
+    extract_type = 'formant'
+    speakers = ['panel']  # 'panel', 'trend', 'twin'
     common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
     for speaker_type in speakers:
         extract_name = 'SWG_'+speaker_type+'_'+extract_type+'_'+date_type

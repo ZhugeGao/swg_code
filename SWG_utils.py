@@ -5,7 +5,86 @@ import pandas as pd
 import regex
 
 
-def compile_pattern(word_pattern):  # pattern is lowercase
+def add_previous_following(extract_path, extract_type):
+    df_extract = read_extract(extract_path)
+    # rename the columns
+    df_extract['previous_word'] = ''
+    df_extract['following_word'] = ''
+    df_extract['previous_seg'] = ''
+    df_extract['following_seg'] = ''
+    if extract_type == 'phone':
+        df_extract = df_extract[['trans_id', 'word_start_time', 'word_end_time', 'word_SWG', 'previous_word','following_word',
+           'seg_number', 'seg_start_time', 'seg_end_time', 'segment_SWG',
+           'diphthong_orthography', 'previous_seg', 'following_seg', 'var_code', 'word_German', 'word_lemma', 'word_stem', 'POS_tag']]
+    if extract_type == 'formant':
+        df_extract = df_extract[['trans_id', 'time', 'F1(Hz)', 'F2(Hz)', 'zeroed_word_start_time', 'zeroed_word_end_time', 'normalized_time_word', 'word_start_time',
+          'word_end_time', 'word_duration', 'word_SWG', 'previous_word', 'following_word', 'seg_number', 'zeroed_seg_start_time', 'zeroed_seg_end_time', 'normalized_time_seg', 'seg_start_time',
+          'seg_end_time', 'seg_duration', 'segment_SWG', 'diphthong_orthography', 'previous_seg',
+        'following_seg', 'var_code', 'word_German', 'word_lemma', 'word_stem', 'POS_tag']]
+    previous_word = "#"
+    following_word = "#"
+    last_time = None
+    last_word = "<P>"
+    next_word_index = 0
+    for i, rows in df_extract.iterrows():
+        # print(rows['trans_id'])
+        previous_seg = "#"
+        following_seg = "#"
+        current_time = rows['word_start_time']
+        current_word = rows['word_SWG']
+        # print("current", rows['segment_SWG'])
+        # print("cw", current_word)
+        if i != 0:  # there is a previous
+            # print("previous", df_extract.iloc[i-1]['segment_SWG'])
+
+            if "_" not in df_extract.iloc[i - 1]['segment_SWG']:
+                previous_seg = df_extract.iloc[i - 1]['segment_SWG']
+
+            if last_time != current_time: # time interval changed
+                if "<" not in last_word:
+                    previous_word = last_word
+                else:
+                    previous_word = "#"
+                last_time = current_time
+                last_word = current_word
+
+        if i + 1 < len(df_extract):
+            # print("after", df_extract.iloc[i+1]['segment_SWG'])
+            if "_" not in df_extract.iloc[i + 1]['segment_SWG']:
+                following_seg = df_extract.iloc[i + 1]['segment_SWG']
+        else:
+            following_word = "#"
+            following_seg = "#"
+        if next_word_index < len(df_extract):
+            following_time = df_extract.iloc[next_word_index]['word_start_time']
+            while following_time == current_time and next_word_index < len(df_extract)-1:
+                next_word_index += 1
+                following_time = df_extract.iloc[next_word_index]['word_start_time']
+                # print(next_word_index)
+                # print(following_time)
+            next_word = df_extract.iloc[next_word_index]['word_SWG']
+            if "<" not in next_word:
+                following_word = next_word
+            else:
+                following_word = "#"
+
+        df_extract.at[i, 'previous_seg'] = previous_seg
+        df_extract.at[i, 'following_seg'] = following_seg
+        df_extract.at[i, 'previous_word'] = previous_word
+        df_extract.at[i, 'following_word'] = following_word
+
+    df_extract.to_csv(extract_path, mode='w', index=False, header=True)
+
+
+def read_extract(extract_path):  # could put in util
+    df_extract = pd.read_csv(
+        extract_path, encoding='utf-8', header=0, keep_default_na=False)
+    df_extract = df_extract.replace('nan', '') # in case there are 'nan'
+
+    return df_extract
+
+
+def compile_pattern(word_pattern, ):  # pattern is lowercase
     pattern = word_pattern.strip()
     pattern = pattern.replace("\ufeff", "")
     pattern = pattern.replace("???", "")
@@ -23,7 +102,7 @@ def compile_pattern(word_pattern):  # pattern is lowercase
     pattern = pattern.replace("[", "\[")  # escape this special symbol for matching
     pattern = pattern.replace("]", "\]")
     # replace all ge to ge? is a bad idea... so maybe do something special with the saf5
-     # saf5 # maybe generate doch dieser neue line/pattern for the [ge] words
+    # saf5 # maybe generate doch dieser neue line/pattern for the [ge] words
     # compile variant into pattern
     compiled_pattern = regex.compile(pattern)
     # what about re?
@@ -69,7 +148,7 @@ def skip_by_tags(outputs, type):
     return outputs
 
 
-def skip_word_list(outputs, word_list_start, word_list_end, type):
+def skip_word_list(outputs, word_list_start, word_list_end, type): # what does output look like
     start_index = -1
     end_index = -1
     for i, output in enumerate(outputs):

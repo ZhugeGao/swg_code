@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 import re
-
+from SWG_utils import read_extract
 
 def add_file_id_col(speaker_file_path, tg_path, date):
     """This script read in the speaker file, and all the corresponding TextGrids and automatically create a new speaker file with
@@ -32,25 +32,24 @@ def sort_social_col(speaker_file_path):  # , col_name
     print(df)
 
 
-# def ge_g():
-#     # read all the csv in the directory
-#     path = "/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/ddm_csv/"
-#     file_list = [file for file in os.listdir(path) if file.endswith('.csv')]
-#     for ddm in file_list:
-#         print(ddm)
-#         df = pd.read_csv(path+ddm, header=None)
-#         df = df.dropna(axis='index', how='any')
-#         for index, row in df.iterrows():
-#             #if "[ge]" in row[0]:
-#             row[1] = re.sub(r'ge', 'ge?', row[1], count=1)
-#         df.to_csv(path+ddm, index=False, header=False)
+def ge_g(): # SAF5 words
+    # read all the csv in the directory
+    path = "/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/SG-LEX 21apr2020_.csv"
+    df = read_extract(path)
+    df = df.dropna(axis='index', how='any')
+    for index, row in df.iterrows():
+        if "SAF5" in row['word_vars']:
+            df.at[index, 'word_variant'] = re.sub(r'ge', 'ge?', row['word_variant'], count=1)
+    df.to_csv(path, index=False, header=True)
 
 
 if __name__ == '__main__':
-    speaker_types = ['twin', 'trend', 'panel']
-    date = "24apr2020"
-    for speaker_type in speaker_types:
-        speaker_file_path = "/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/SWG_"+ speaker_type +"_speakers_"+date+".csv"
-        tg_path = "/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/" + speaker_type+"_tg/" # use a dictionary or something
-
-        add_file_id_col(speaker_file_path, tg_path, date)
+    pass
+    # ge_g()
+    # speaker_types = ['twin', 'trend', 'panel']
+    # date = "24apr2020"
+    # for speaker_type in speaker_types:
+    #     speaker_file_path = "/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/SWG_"+ speaker_type +"_speakers_"+date+".csv"
+    #     tg_path = "/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/" + speaker_type+"_tg/" # use a dictionary or something
+    #
+    #     add_file_id_col(speaker_file_path, tg_path, date)

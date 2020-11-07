@@ -39,9 +39,9 @@ class AddSocialInfo:
 
 if __name__ == '__main__':
     # import the method in the main class
-    date_type = '20200730' + 'noSocialInfo' + '.csv' #
-    extract_type = 'formant'
-    speakers = ['panel']  # 'panel', 'trend', 'twin'
+    date_type = '20201107' + 'noSocialInfo' + '.csv' #
+    extract_type = 'phone'
+    speakers = ['panel', 'twin']  #  'trend'
     common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
     for speaker_type in speakers:
         extract_name = 'SWG_'+speaker_type+'_'+extract_type+'_'+date_type

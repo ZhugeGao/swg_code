@@ -5,6 +5,28 @@ import pandas as pd
 import regex
 
 
+def add_file_id_col(speaker_file_path, tg_path, date):
+    """This script read in the speaker file, and all the corresponding TextGrids and automatically create a new speaker file with
+    The actual TextGrids names in the first column, which can be used to add social information to the words or phrases file"""
+    # unicode support?
+    df = pd.read_csv(speaker_file_path, header=0)
+    df.rename(columns={'trans_id': 'File_ID'}, inplace=True)
+    tg_list = os.listdir(tg_path)
+    tg = filter(lambda tg: re.search(r'\.TextGrid', tg), tg_list)
+    list_tg = list(tg)
+    list_tg = [tg.replace('.TextGrid', '') for tg in list_tg]
+    df_tg = pd.DataFrame({'trans_id': list_tg})
+
+    df_tg['File_ID'] = ''
+    for index, row in df_tg.iterrows():
+        row['File_ID'] = re.sub(r'-\d-', '-n-', row['trans_id'])
+    df_m = pd.merge(df_tg, df, on='File_ID', how='outer')
+    df_m = df_m.drop('File_ID', axis=1)
+    df_m.to_csv(
+        '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/SWG_'+speaker_type + '_speakers_'+date+'.csv',
+        index=False)
+
+
 def add_previous_following(extract_path, extract_type):
     df_extract = read_extract(extract_path)
     # rename the columns
@@ -36,25 +58,26 @@ def add_previous_following(extract_path, extract_type):
         # print("cw", current_word)
         if i != 0:  # there is a previous
             # print("previous", df_extract.iloc[i-1]['segment_SWG'])
-
-            if "_" not in df_extract.iloc[i - 1]['segment_SWG']:
-                previous_seg = df_extract.iloc[i - 1]['segment_SWG']
-
-            if last_time != current_time: # time interval changed
+            if last_time != current_time:  # time interval changed, word changed
                 if "<" not in last_word:
                     previous_word = last_word
                 else:
                     previous_word = "#"
                 last_time = current_time
                 last_word = current_word
+            else:
+                if "_" not in df_extract.iloc[i - 1]['segment_SWG']:
+                    previous_seg = df_extract.iloc[i - 1]['segment_SWG']
 
         if i + 1 < len(df_extract):
+            next_row_time = following_time = df_extract.iloc[i+1]['word_start_time']
             # print("after", df_extract.iloc[i+1]['segment_SWG'])
-            if "_" not in df_extract.iloc[i + 1]['segment_SWG']:
-                following_seg = df_extract.iloc[i + 1]['segment_SWG']
+            if next_row_time == current_time:  # same word
+                if "_" not in df_extract.iloc[i + 1]['segment_SWG']:
+                    following_seg = df_extract.iloc[i + 1]['segment_SWG']
         else:
             following_word = "#"
-            following_seg = "#"
+
         if next_word_index < len(df_extract):
             following_time = df_extract.iloc[next_word_index]['word_start_time']
             while following_time == current_time and next_word_index < len(df_extract)-1:
@@ -76,20 +99,12 @@ def add_previous_following(extract_path, extract_type):
     df_extract.to_csv(extract_path, mode='w', index=False, header=True)
 
 
-def read_extract(extract_path):  # could put in util
-    df_extract = pd.read_csv(
-        extract_path, encoding='utf-8', header=0, keep_default_na=False)
-    df_extract = df_extract.replace('nan', '') # in case there are 'nan'
-
-    return df_extract
-
-
-def compile_pattern(word_pattern, ):  # pattern is lowercase
+def compile_pattern(word_pattern, var_code):  # pattern is lowercase
     pattern = word_pattern.strip()
     pattern = pattern.replace("\ufeff", "")
     pattern = pattern.replace("???", "")
-    pattern = pattern.replace(" ","")
-    pattern = pattern.replace("xxx","")
+    pattern = pattern.replace(" ", "")
+    pattern = pattern.replace("xxx", "")
     if pattern.startswith("*"):
         pattern = '.*' + pattern[1:]
     else:
@@ -99,14 +114,31 @@ def compile_pattern(word_pattern, ):  # pattern is lowercase
     else:
         pattern = pattern + "$"
     pattern = pattern.replace("[ge]", "[ge?]")
+    if "SAF5" in var_code:
+        pattern = pattern.replace("ge", "ge?")
     pattern = pattern.replace("[", "\[")  # escape this special symbol for matching
     pattern = pattern.replace("]", "\]")
-    # replace all ge to ge? is a bad idea... so maybe do something special with the saf5
-    # saf5 # maybe generate doch dieser neue line/pattern for the [ge] words
-    # compile variant into pattern
     compiled_pattern = regex.compile(pattern)
-    # what about re?
+
     return compiled_pattern
+
+
+def ge_g():  # SAF5
+    path = "/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/SG-LEX 21apr2020_.csv"
+    df = read_extract(path)
+    df = df.dropna(axis='index', how='any')
+    for index, row in df.iterrows():
+        if "SAF5" in row['word_vars']:
+            df.at[index, 'word_variant'] = re.sub(r'ge', 'ge?', row['word_variant'], count=1)
+    df.to_csv(path, index=False, header=True)
+
+
+def read_extract(extract_path):  # could put in util
+    df_extract = pd.read_csv(
+        extract_path, encoding='utf-8', header=0, keep_default_na=False)
+    df_extract = df_extract.replace('nan', '') # in case there are 'nan'
+
+    return df_extract
 
 
 def read_lex_table(lex_table_path):
@@ -222,7 +254,8 @@ def word_filter(word_raw):
     dot_2 = re.compile(r'\.{2,3}')
     quo_2 = re.compile(r'^\d?"{2,}$')
     question_2 = re.compile(r'\?{2,}')
-    filter_list = [person_name_l, person_name_r, hyphen, hyphen_2, double_dash, dash_l, dash_r, dot_2, question_2,
+    angle_brackets = re.compile(r'^<[a-zA-ZäöüÄÖÜßÔûôÊĩÂâõẽãÃêàéëî?]+>[,.!?]*$')
+    filter_list = [angle_brackets, person_name_l, person_name_r, hyphen, hyphen_2, hyphen_3, double_dash, dash_l, dash_r, dot_2, question_2,
                    quo_2]
     punct = [',', '.', '!', '?']
     word_raw = word_raw.replace(":", "")

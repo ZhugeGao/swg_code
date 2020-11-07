@@ -8,8 +8,6 @@ import re
 import string
 import traceback
 
-import pandas as pd
-import regex
 import textgrid
 from nltk.parse import CoreNLPParser
 from SWG_utils import read_lex_table, compile_pattern
@@ -280,18 +278,18 @@ def timestamp_convert(ts):
 
 
 if __name__ == '__main__':
-    date = '20200622'
-    types =  'noSocialInfo' + '.csv'
-    common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
+    date = '20200822'
+    types = 'noSocialInfo' + '.csv'
+    working_directory = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
     extract_type = 'clauses'
-    speaker_tg_path = {'SWG_style_' + extract_type + '_' + date + types: [common_path + 'style_tg/']}
-    # speaker_tg_path = {'SWG_panel_clauses_' + date_type: [common_path + 'recovery_1982/', common_path + 'recovery_2017/'] , 'SWG_trend_clauses_' + date_type: [common_path + 'trend_tg/']}  #
-    # 'SWG_twin_clauses_' + date_type: [common_path + 'twin_tg/']
-    lex_table_path = common_path + 'SG-LEX 21apr2020.csv'
-    done_path = common_path + "done/"
+    speaker_tg_path_dict = {'SWG_trend_'+ extract_type + '_' + date + types: [working_directory + 'trend_tg/']}
+    # speaker_tg_path_dict = {'SWG_panel_clauses_' + date_type: [working_directory + 'recovery_1982/', working_directory + 'recovery_2017/'] ,
+    # 'SWG_twin_clauses_' + date_type: [working_directory + 'twin_tg/'], 'SWG_style_' + extract_type + '_' + date + types: [working_directory + 'style_tg/']
+    lex_table_path = working_directory + 'SG-LEX 21apr2020.csv'
+    done_path = working_directory + "done/"
 
-    for extract_name in speaker_tg_path.keys():
-        for tg_path in speaker_tg_path[extract_name]:
-            extract_path = common_path + extract_name
+    for extract_name in speaker_tg_path_dict.keys():
+        for tg_path in speaker_tg_path_dict[extract_name]:
+            extract_path = working_directory + extract_name
             transform = Transform(tg_path, extract_path)
             transform.start()

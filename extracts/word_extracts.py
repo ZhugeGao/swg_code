@@ -22,8 +22,10 @@ hyphen = re.compile(r'^-$')
 dot_2 = re.compile(r'\.{2,3}')
 quo_2 = re.compile(r'^\d?"{2,}$')
 question_2 = re.compile(r'\?{2,}')
-filter_list = [person_name_l, person_name_r, hyphen, hyphen_2, double_dash, dash_l, dash_r, dot_2, question_2, quo_2]
-
+angle_brackets = re.compile(r'^<[a-zA-ZäöüÄÖÜßÔûôÊĩÂâõẽãÃêàéëî?]+>[,.!?]*$')
+filter_list = [angle_brackets, person_name_l, person_name_r, hyphen, hyphen_2, hyphen_3, double_dash, dash_l, dash_r,
+               dot_2, question_2,
+               quo_2]
 def create_word_csv(speaker_paths, word_extract_path, lex_table, filename_annotation_map, file_timeseg_map):
     variant_match = dict()
     pos_tagger = CoreNLPParser('http://localhost:9002', tagtype='pos')
@@ -36,18 +38,20 @@ def create_word_csv(speaker_paths, word_extract_path, lex_table, filename_annota
     for r in zip(lex_table['word_variant'], lex_table['word_standard'], lex_table['word_vars'], lex_table['POS_tag']):
         # dict with variant as key.
         # if no match tag the thing
-        v_pattern = compile_pattern(r[0])
+        v_pattern = compile_pattern(r[0], r[2])
         if v_pattern not in variant_match.keys():
             variant_match[v_pattern] = []
-        else:
-            print(v_pattern)
+
         variant_match[v_pattern].append(r)
+    for w_var, w_val in variant_match.items():
+        if len(w_val) > 1:
+            print(w_var, w_val)
     # check if the word's lemma is gehen. If it is, then don't tag the word as SAF5
     gehen_variants = set()
     locations = lex_table.loc[lex_table['word_lemma'] == 'gehen']
     for gehen_var in zip(locations['word_variant'], locations['word_vars']):
         if "SAF5" not in gehen_var[1]:
-            g_pattern = compile_pattern(gehen_var[0])
+            g_pattern = compile_pattern(gehen_var[0], gehen_var[1])
             gehen_variants.add(g_pattern)
 
     # get speaker file names
@@ -66,7 +70,6 @@ def create_word_csv(speaker_paths, word_extract_path, lex_table, filename_annota
                 for i, w in enumerate(word_annotation):
                     if w:  # empty word check
                         # print(w)
-                        # I forgot why I wrote this...e
                         sym_seq = None
                         for org_idx, t in enumerate(original_segment): # this is for the word count
                             if sym_seq is not None:
@@ -105,19 +108,33 @@ def create_word_csv(speaker_paths, word_extract_path, lex_table, filename_annota
                                 break
                             if p.search(w) is not None:  # .lower()
                                 no_match = False
+                                replace = True
                                 for values in variant_match[p]:
-                                    # swg = values[0].replace("*", "")
-                                    # # rum[ge]draat
-                                    # if "ge" in swg and "ge" not in w:
-                                    #     swg = swg.replace("ge", "g") # for gespielt gspielt
-                                        # why do I have this again?
-                                    # another ge exception for word_lemma gehen
-                                    std = values[1].replace("*", "")
-                                    std_list.add(std)
+                                    w_var = values[0].replace("*", "")  # word variant
+                                    w_std = values[1].replace("*", "")  # word standard
+                                    if std_list:
+                                        tmp_std = set()
+                                        while std_list:
+                                            s = std_list.pop()
+                                            if p.search(s) is not None:
+                                                if replace:
+                                                    std = s.replace(w_var, w_std)
+                                                else:
+                                                    std = values[1]
+                                                tmp_std.add(std)
+                                            else:
+                                                tmp_std.add(s)
+                                        std_list.update(tmp_std)
+                                    else:
+                                        if replace:
+                                            std = w.replace(w_var, w_std)
+                                        else:
+                                            std = values[1]
+                                        std_list.add(std)
                                     if isinstance(values[2], float) and math.isnan(values[2]): #check for empty var_code
                                         ddm_list.add(' ')  # do nothing
                                     else:
-                                        ddm_list.add(values[2]) # should be set
+                                        ddm_list.add(values[2])  # should be set
                                     # another check for the lex table
                                     # or change the lex table method when reading just ignore the bad word_vars
                                     pos_list.add(values[3])
@@ -128,6 +145,8 @@ def create_word_csv(speaker_paths, word_extract_path, lex_table, filename_annota
                             pos = pos_tagger.tag([w])[0][1]
                         else:
                             standard = " ".join(std_list)
+                            if len(std_list) > 1:
+                                print(w, "std: ", standard)
                             ddm = " ".join(str(d) for d in ddm_list)
                             # maybe here is the problem
                             if any("SAF5" in d for d in ddm_list):
@@ -263,7 +282,7 @@ def append_to_word_extract(transcript_id, word, DDM, std, pos, beg_hms, sym_seq)
 
 
 def append_to_lex(word_stem, word_lemma, word_standard, word_variant, word_vars, word_english, POS, word_MHG, word_stem_freq, word_lemma_freq, word_standard_freq, word_variant_freq):
-    with open(output_path_lex, mode='a', newline="") as lex_output: # path thing might not work though
+    with open(output_file_lex, mode='a', newline="") as lex_output: # path thing might not work though
         csv_writer = csv.writer(lex_output, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         csv_writer.writerow(
             [word_stem, word_lemma, word_standard, word_variant, word_vars, word_english, POS, word_MHG, word_stem_freq, word_lemma_freq, word_standard_freq, word_variant_freq])
@@ -290,7 +309,7 @@ def lex_table_fix(lex_table, counter, lex_output_path):  # need a better name fo
     variant_c = dict()
     dict_count_list = [stem_c, lemma_c, standard_c, variant_c]
     # check for
-    with open(output_path_lex, 'w', newline="") as lex_csv:
+    with open(output_file_lex, 'w', newline="") as lex_csv:
         csv_writer = csv.writer(lex_csv, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         csv_writer.writerow(['word_stem', 'word_lemma', 'word_standard', 'word_variant', 'word_vars', 'word_english',
                              'POS_tag', 'word_MHG', 'word_stem_freq', 'word_lemma_freq', 'word_standard_freq', 'word_variant_freq'])
@@ -302,22 +321,34 @@ def lex_table_fix(lex_table, counter, lex_output_path):  # need a better name fo
         value = tuple(" " if isinstance(i, float) and math.isnan(i) else i for i in r[4:])# value: word_vars, word_english, word_MHG
         # is there a way to avoid repeated tagging on the same standard words?
         # pre-prossessing the word_vars, checking for word_vars that does not end with 's' or 'd'
-        word_vars = value[0].split()  # get rid of dangling whitespaces and multiple word_vars
         skip = False
+        word_vars = value[0].split()  # get rid of dangling whitespaces and multiple word_vars
+        word_std = key[2]
+        word_variant = key[3]
+        if "*" in word_variant and "*" not in word_std:
+            with open(date + "_*_check.txt", "a+") as file:
+                print(key[3], key[2], value, file=file)
+        elif "*" in word_std and "*" not in word_variant:
+            with open(date + "_*_check.txt", "a+") as file:
+                print(key[3], key[2], value, file=file)
+        AIS_check_list = ["ei", "êi", "ôi"]
+        if any(ais in key[3] for ais in AIS_check_list):
+            if not any("AIS" in wv for wv in word_vars):
+                with open(date+"_check_ais.txt", "a+") as file:
+                    print(key[3], value, file=file)
         for wv in word_vars:
             if not (wv.endswith("s") or wv.endswith("d")):
                 skip = True
-                with open(date+"_wrong_word_vars.txt", "a+") as file:
-                    print(key, value, file=file)   # Will this skip the rows
-                continue
+                with open(date+"_wrong_word_vars_ds.txt", "a+") as file:
+                    print(key[3], value, file=file)
         if skip:
             continue
         # update word_vars dictionary
         if key not in v_dict.keys():
             v_dict[key] = [value]
-        else: # if the key exist in dictionary.
+        else:  # if the key exist in dictionary.
             append = True
-            for v in v_dict[key]: # check each value to see if the value existed.
+            for v in v_dict[key]:  # check each value to see if the value existed.
                 if v[0] == value[0]:  # only check if the new word_vars is the same as the existing one.
                     append = False
                     print(key, value)
@@ -326,19 +357,14 @@ def lex_table_fix(lex_table, counter, lex_output_path):  # need a better name fo
                 v_dict[key].append(value)
 
     for key in v_dict.keys():
-        print(key)
         # unused variables
-        stem = key[0]
-        lemma = key[1]
-        standard = key[2]
         variant = key[3]
         # write a function for the lower part with the four things as argument then use *key. to make things easier
-        variant_pattern = compile_pattern(variant)
+        variant_pattern = compile_pattern(variant, v_dict[key][0])
         variant_count = get_count(variant_pattern, counter)  # later can be changed to new_count
         new_count = variant_count[0]  # later can be removed when the get count function no longer needs to return word
         for key_word, d in zip(list(key), dict_count_list):  # stem, lemma, standard, variant
             count_update(key_word, d, new_count)  # don't know how well this will work
-    print(3)
     for k, v in v_dict.items():
         stem_freq = stem_c[k[0]]
         lemma_freq = lemma_c[k[1]]
@@ -361,8 +387,6 @@ def count_update(key_word, dictionary, new_count):
 
 
 def anno_filter(anno_raw, hyphen_3):
-    #if "[REL]" in anno_raw:
-        #print(anno_raw)
     if any(re.search(hyphen_3, wr) for wr in anno_raw): # when it switched to while it takes so long
         # update anno_raw
         idx = [i for i, wr in enumerate(anno_raw) if re.search(hyphen_3, wr)]
@@ -383,41 +407,31 @@ def anno_filter(anno_raw, hyphen_3):
 
 
 if __name__ == '__main__':
-    common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
-    output_path_lex = common_path+"SG-LEX 21apr2020.csv"
-    lex_input_path_xlsx = common_path+"SG-LEX 21apr2020.xlsx"  # always use the newer version
-    lex_fix = False
-    extract = True
+    working_directory = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
+    output_file_lex = working_directory+"SG-LEX 06nov2020.csv"
+    input_file_lex = working_directory+"SG-LEX 06nov2020.xlsx"  # always use the newer version
+    fix_lex = True
+    run_extract = False
 
-    all_speaker_paths = [common_path+"recovery_1982/", common_path+"recovery_2017/", common_path+"trend_tg/",
-                         common_path+"twin_tg/", common_path+"style_tg/"]
+    all_speaker_paths = [working_directory + "recovery_1982/", working_directory + "recovery_2017/", working_directory + "trend_tg/",
+                         working_directory + "twin_tg/"]  # , working_directory+"style_tg/"
+    # do not use this, use the dictionary values in the
     extract_type = 'words'
-    date = '20200622'
+    date = '20201103'
     types = 'noSocialInfo'+'.csv'
-    speaker_tg_path = {common_path+'SWG_style_'+extract_type+'_'+date+types:[common_path+'style_tg/']}
-    # common_path+'SWG_panel_'+extract_type+'_'+date+types:[common_path+'recovery_1982/', common_path+'recovery_2017/'], common_path+'SWG_trend_'+extract_type+'_'+date+types:[common_path+'trend_tg/'], common_path+'SWG_twin_'+extract_type+'_'+date+types:[common_path+'twin_tg/']
-    # thinking about automating the entire process, using if and other stuff
+    speaker_tg_path_dict = {working_directory+'SWG_twin_'+extract_type+'_'+date+types: [working_directory+'twin_tg/']}
+    # working_directory+'SWG_trend_'+extract_type+'_'+date+types: [working_directory+'trend_tg/']
+    # working_directory+'SWG_panel_'+extract_type+'_'+date+types:[working_directory+'recovery_1982/', working_directory+'recovery_2017/'], working_directory+'SWG_twin_'+extract_type+'_'+date+types:[working_directory+'twin_tg/']
+    # working_directory + 'SWG_style_' + extract_type + '_' + date + types: [working_directory + 'style_tg/']
     # put the lex table fix together and the speaker files and word extracts together
-    if lex_fix:
-        word_counter, file_words_map, file_time_seg_map = read_tg_files(all_speaker_paths)  # maybe separate these
-        lex = read_lex_table(lex_input_path_xlsx)
-        lex_table_fix(lex, word_counter, output_path_lex)
+    if fix_lex:
+        word_counter, file_words_map, file_time_seg_map = read_tg_files(all_speaker_paths)
+        lex = read_lex_table(input_file_lex)
+        lex_table_fix(lex, word_counter, output_file_lex)
 
-    if extract:
-        for speaker_path in speaker_tg_path.keys():  # speaker should be refactored to extract
+    if run_extract:
+        for speaker_path in speaker_tg_path_dict.keys():  # speaker should be refactored to extract
             word_extract_path = speaker_path  # maybe pass this as argument?, change it to a path
-            _, file_words_map, file_time_seg_map = read_tg_files(speaker_tg_path[speaker_path])
-            lex_fixed = read_lex_table(output_path_lex)
-            create_word_csv(speaker_tg_path[speaker_path], word_extract_path, lex_fixed, file_words_map, file_time_seg_map)
-
-    # speaker_path = ["/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/test/"]
-    # word_extract_path = "/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/test/test.csv"
-
-    # word_counter, file_words_map, file_time_seg_map = read_tg_files(speaker_path)
-    # lex = read_lex_table(lex_input_path_xlsx)
-    # lex_table_fix(lex, word_counter, output_path_lex)
-
-    # for speaker in speaker_path:
-    #     _, file_words_map, file_time_seg_map = read_tg_files(speaker_path)
-    #     lex_fixed = read_lex_table(output_path_lex)
-    #     create_word_csv(speaker_path, word_extract_path, lex_fixed, file_words_map, file_time_seg_map)
+            _, file_words_map, file_time_seg_map = read_tg_files(speaker_tg_path_dict[speaker_path])
+            fix_lexed = read_lex_table(output_file_lex)
+            create_word_csv(speaker_tg_path_dict[speaker_path], word_extract_path, fix_lexed, file_words_map, file_time_seg_map)

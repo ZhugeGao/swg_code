@@ -1,6 +1,7 @@
 """
-Author: Nianheng Wu
+Author: Nianheng Wu, Zhuge Gao
 xjtuwunianheng@gmail.com, Eberhard Karls Universität Tübingen
+zhuge.gao@student.uni-tuebingen.de
 """
 import math
 import os
@@ -12,12 +13,12 @@ import traceback
 import re
 from nltk import CoreNLPParser
 import pandas as pd
-from SWG_utils import compile_pattern, read_lex_table, word_filter,add_previous_following
+from SWG_utils import compile_pattern, read_lex_table, word_filter, add_previous_following
 
 
 class Transform:
 
-    def __init__(self, rootpath, outputpath, lex): # maps
+    def __init__(self, rootpath, outputpath, lex):  # maps
         self.rootpath = rootpath
         self.outputpath = outputpath
         self.lex_table = lex
@@ -40,13 +41,13 @@ class Transform:
 
     def read_from_textgrid (self, file_list):
         pos_tagger = CoreNLPParser('http://localhost:9002', tagtype='pos')
-        table = str.maketrans(dict.fromkeys(string.punctuation))
+        table = str.maketrans(dict.fromkeys(string.punctuation.replace("[\\]","")))
         variant_match = dict()
         for r in zip(self.lex_table['word_variant'], self.lex_table['word_standard'], self.lex_table['word_vars'],
                      self.lex_table['POS_tag'], self.lex_table['word_lemma'], self.lex_table['word_stem']):
             # dict with variant as key.
             # if no match tag the thing
-            v_pattern = compile_pattern(r[0])
+            v_pattern = compile_pattern(r[0], r[2])
             if v_pattern not in variant_match.keys():
                 variant_match[v_pattern] = []
             # else:
@@ -57,9 +58,13 @@ class Transform:
         locations = self.lex_table.loc[self.lex_table['word_lemma'] == 'gehen']
         for gehen_var in zip(locations['word_variant'], locations['word_vars']):
             if "SAF5" not in gehen_var[1]:
-                g_pattern = compile_pattern(gehen_var[0])
+                g_pattern = compile_pattern(gehen_var[0], gehen_var[1])
                 gehen_variants.add(g_pattern)
+
         words_h = []
+        skip_begin = False
+        skip_begin_tag = ""
+        skip_end_file = ""
         for each_file_name in file_list:
             original_words = read_txt(self.rootpath, each_file_name)
             context = []
@@ -76,7 +81,7 @@ class Transform:
                     tags.append(tag)
                     # print(tag)
                 elif "[" in ow or "]" in ow:
-                    print("missed tag in:", each_file_name)
+                    print("incorrect tag in:", each_file_name)
                     print(ow)
                     print(original_words)
             if tags:
@@ -85,8 +90,25 @@ class Transform:
                         rel = True
                         context.append(original_words[i-1].translate(table))
                     elif tag in self.tags.keys():
-                        pass
-                        # skip. save the tag and it's context?
+                        print(each_file_name)
+                        print("Skipping:", tag)
+                        skip_begin = True
+                        skip_begin_tag = tag
+                    elif tag in self.tags.values():
+                        if tag == self.tags[skip_begin_tag]:
+                            print(each_file_name)
+                            print("Skipping:", tag)
+                            skip_begin = False  # this will not skip the file which contains the end tag
+                            skip_end_file = each_file_name  # skip the file that contains the end tag
+                        else:
+                            print("Wrong end tag:", tag)
+                    # maybe should skip before the Aligner. Just have one that operates on TextGrid and WAV then no skipping in extract
+            if skip_begin:
+                print("Skipping:", original_words)
+                continue
+            if each_file_name == skip_end_file:  #
+                print("Skipping:", original_words)
+                continue
             # print("filename:", each_file_name)
             interval_num = 0
 
@@ -95,7 +117,7 @@ class Transform:
                 file_textgrid_obj = textgrid.TextGrid.fromFile(file_path)
             except ValueError:
                 print(each_file_name +'value error has occured')
-                os.rename(self.rootpath + +each_file_name, common_path + 'valueError/' + each_file_name)
+                os.rename(self.rootpath + +each_file_name, working_directory + 'valueError/' + each_file_name)
                 continue
             tier_list = file_textgrid_obj.tiers
 
@@ -112,10 +134,11 @@ class Transform:
             seg_num = 1
             diphthong_num = 0
             diphthong_dict = {'a͜i': {'ua', 'ai', 'êi', 'ei', 'âi', 'aî', 'ãi'}, 'a͜u': {'au', 'âu'}, 'ɔ͜y': {'ôi', 'eu', 'äu', 'oi', 'êu', 'eü', 'oî'}}
-
+            # print(each_file_name)
             try:
                 for i, each_word in enumerate(intervals_words):
                     add_rel = False
+
                     word_start_time = each_word.minTime
                     word_end_time = each_word.maxTime
                     word_mark = each_word.mark
@@ -126,7 +149,7 @@ class Transform:
                             continue  # some words just turned to h. for unknown reason
                             # investigate
                         else:
-                            word_mark = match[0]
+                            word_mark = match[0].replace("[ge]", "")
                     if rel:
                         if word_mark == context[0] or word_mark == clean_word(context[0]):
                             add_rel = True  # maybe not do it here is better
@@ -139,49 +162,52 @@ class Transform:
                                 rel_var = " RLOs"
                             else:
                                 rel_var = " UNK"
-                        # else:
-                            # print(context)
-                            # print(intervals_words[i+1].mark)
-                            # print(word_mark)
-                    # # if (each_file_name, str(count)) in symbol_map.keys():
-                    # #     # print(each_file_name)
-                    # #     # there will be no symbol map
-                    # #     value = symbol_map[(each_file_name, str(count))]
-                    # #     if value[0] == 'dash' and word_mark == value[1]:
-                    # #         word_mark = '-'+word_mark+'-'
-                    # #         print(word_mark)
-                    # #     elif value[0] == 'person' and word_mark == value[1]: # and other matched filtered regex
-                    # #         word_mark = '{removed}'
-                    # #     elif value[0] == 'other' and word_mark == value[1]:
-                    # #         word_mark = "'''removed'''"
-                    # #     double_dash = regex.compile("-[a-zA-ZäöüÄÖÜß]+-")
-                    # #     half_word = regex.compile("[a-zA-ZäöüÄÖÜß]+---")
-                    # #     person_name = regex.compile("{[a-zA-ZäöüÄÖÜß]+}")
-                    # #     other_name = regex.compile("'''[a-zA-ZäöüÄÖÜß]+'''")
-                    # # else:
-                    # #     pass
-                    #     # this is where you get the recovered words from the txt
-                    # # ignore all the filter and other stuff...
+
                     std_list = set()
                     ddm_list = set()
                     pos_list = set()
                     lemma_list = set()
                     stem_list = set()
                     no_match = True
-                    # words = word_filter(word_mark)
+
                     for p in variant_match.keys():
                         if p.search(word_mark) is not None:
                             if any("IRV" in d for d in ddm_list):
                                 # print(" ".join(ddm_list))
                                 break
                             no_match = False
+                            replace = True
                             for values in variant_match[p]:
-                                std = values[1].replace("*", "")
+                                if "*" in values[0] and "*" not in values[1]:
+                                    replace = False
+                                w_var = values[0].replace("*", "")  # word variant
+                                w_std = values[1].replace("*", "")  # word standard
+                                if std_list:
+                                    tmp_std = set()
+                                    while std_list:
+                                        s = std_list.pop()
+                                        if p.search(s) is not None:
+                                            if replace:
+                                                std = s.replace(w_var, w_std)
+                                            else:
+                                                std = values[1]
+                                            tmp_std.add(std)
+                                        else:
+                                            tmp_std.add(s)
+                                    std_list.update(tmp_std)
+                                else:
+                                    if replace:
+                                        std = word_mark.replace(w_var, w_std)
+                                    else:
+                                        std = values[1]
+                                    std_list.add(std)
                                 lemma = values[4]
                                 stem = values[5]
-                                std_list.add(std)
                                 lemma_list.add(lemma)
                                 stem_list.add(stem)
+                                # if "SAF5" in values[2]:
+                                #     print(word_mark)
+                                #     if "ge"
                                 if isinstance(values[2], float) and math.isnan(values[2]):  # check for empty var_code
                                     ddm_list.add(' ')  # do nothing
                                 else:
@@ -191,19 +217,20 @@ class Transform:
                         word_german = word_mark
                         var_code = " "
                         pos_tag = pos_tagger.tag([word_german])[0][1]
-                        word_lemma = " "
+                        word_lemma = word_german
                         word_stem = " "
                     else:
-                        word_german = " ".join(std_list)
                         var_code = " ".join(str(d) for d in ddm_list)
-                        word_lemma = " ".join(lemma_list)
-                        word_stem = " ".join(stem_list)
                         if any("SAF5" in d for d in ddm_list):
-                            # print(ddm) # right, this
                             for g_pattern in gehen_variants:
                                 if g_pattern.search(word_mark) is not None:
                                     var_code = var_code.replace("SAF5d", "")
                                     var_code = var_code.replace("SAF5s", "")
+                        word_german = " ".join(std_list)
+                        if len(std_list) > 1:
+                            print(word_mark, "std: ", word_german)
+                        word_lemma = " ".join(lemma_list)
+                        word_stem = " ".join(stem_list)
                         pos_tag = " ".join(str(p) for p in pos_list)
                     if add_rel:
                         var_code = var_code + rel_var
@@ -237,9 +264,25 @@ class Transform:
                                 diphthong_num = 0
                                 current_minTime = word_start_time
 
-                            self.output_as_csv(each_file_name[:-9],
-                                               word_start_time, word_end_time, word_mark, seg_num, segment_start_time,
-                                               segment_end_time, segment_mark, diphthong_orthography, var_code, word_german, word_lemma, word_stem, pos_tag)
+                            output_flag = False
+                            if word_mark not in original_words:
+                                match_ow = [ow for ow in original_words if word_mark == clean_word(ow)]
+                                if match_ow:
+                                    word_original = match_ow[0]
+                                    if word_filter(word_original)[0]:
+                                        output_flag = True
+                            else:
+                                output_flag = True
+                            if var_code.strip():  # quick fix
+                                output_flag = True
+                            if output_flag:
+                                self.output_as_csv(each_file_name[:-9], word_start_time, word_end_time, word_mark,
+                                                   seg_num, segment_start_time, segment_end_time, segment_mark,
+                                                   diphthong_orthography, var_code, word_german, word_lemma, word_stem,
+                                                   pos_tag)
+                            else:
+                                if "<" not in word_mark:
+                                    print("not a word: ", each_file_name[:-9], word_start_time, word_end_time, word_mark, var_code, word_german)
                             seg_num += 1
                             interval_num += 1
                     except IndexError:
@@ -317,18 +360,20 @@ def is_vowel(word):
 
 
 if __name__ == '__main__':
-    common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
-    speaker_donepath = {'panel':[common_path + 'done_panel/1982/', common_path + 'done_panel/2017/']}
-    # 'twin': [common_path + 'done_twin/']
-    speaker = 'panel'
+    working_directory = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
+    speaker_done_path = {'panel': [working_directory + 'done_panel/1982/', working_directory + 'done_panel/2017/'], 'twin': [working_directory + 'done_twin/']}
+    # speaker_done_path = {'twin': [working_directory + 'test/']}
+    # 'trend': [working_directory + 'done_trend/']
+    # 'panel': [working_directory + 'done_panel/1982/', working_directory + 'done_panel/2017/']
+    speaker_list = ['panel', 'twin']
     extract_type = 'phone'
-    date = '20200730'
+    date = '20201107'
     types = 'noSocialInfo' + '.csv'
-    output_path = common_path + 'SWG_'+speaker+'_'+extract_type+'_'+date+types
-    lex_path = common_path + 'SG-LEX 21apr2020.csv'
-
+    lex_path = working_directory + 'SG-LEX 06nov2020.csv'
     lex = read_lex_table(lex_path)
-    for source_path in speaker_donepath[speaker]:
-        transform = Transform(source_path, output_path, lex)
-        transform.start()
-    add_previous_following(output_path, extract_type)
+    for speaker in speaker_list:
+        output_path = working_directory + 'SWG_'+speaker+'_'+extract_type+'_'+date+types
+        for source_path in speaker_done_path[speaker]:
+            transform = Transform(source_path, output_path, lex)
+            transform.start()
+        add_previous_following(output_path, extract_type)

@@ -82,18 +82,13 @@ def find_rel_label(path):
                 elif "REL" in line or "ANT" in line:
                     print(tg)
                     print(line)
-
         # print(tag_in_file)
-
-
 
 
 if __name__ == '__main__':
     # PUT path in a list
     common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
-    # textgrids_path = [common_path + 'twin_tg/', common_path + 'trend_tg/', common_path + 'recovery_1982/',
-    #              common_path + 'recovery_2017/'] # , common_path+'style_tg/', common_path + 'trend_tg/'
-    textgrids_path = [common_path + 'twin_tg/']
+    textgrids_path = [common_path + 'twin_tg/', common_path + 'trend_tg/']
 
     # print which path is being processed
     for path in textgrids_path:

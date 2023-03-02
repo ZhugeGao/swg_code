@@ -1,5 +1,7 @@
 import glob
 import os
+import re
+
 import pandas as pd
 
 
@@ -33,9 +35,10 @@ def read_speakers(speaker_files):
 
 
 def match_file_speaker(working_directory, downloads_directory, trans_id_speaker_dict, files_paths, file_type):
-    """this method will match all the files' name with the trans_id, and put the file into corresponding speaker
+    """this method will match all the filenames with the trans_id, and put the file into corresponding speaker
     directory if there is a match. If there is not a match, the file will be put into the unprocessed"""
     unprocessed_path = working_directory+ downloads_directory + '/'  # all the unmatched files will be put in this directory
+    type_target = {'.eaf': '_elan/', '.TextGrid': '_tg/', '.wav': '_wav/'}
     for file in files_paths.keys():
         file_path = working_directory + files_paths[file] + file
         trans_id = file.replace(file_type, '')
@@ -65,25 +68,40 @@ def match_file_pair(filetype1, filetype2, directory):
     ft2 = [fn.replace(filetype2, '') for fn in glob.iglob(os.path.join(directory, '*' + filetype2))]
     print("Missing", filetype1 + ":", sorted(list(set(ft2) - set(ft1))))
     print("Missing", filetype2 + ":", set(ft1) - set(ft2))
+    return sorted(list(set(ft2) - set(ft1))), sorted(list(set(ft1) - set(ft2)))
+
+
+# a helper method to extract only the title
+def extract_speaker_file_name(file_name):
+    p = re.compile(r'S[0-9]+-')
+    m = re.search(p, file_name)
+    return m.group(0)
 
 
 working_directory = "/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/"
 os.chdir(working_directory)
-match_file_pair(".Formant", ".wav", "done_twin")
+w, f = match_file_pair(".Formant", ".wav", "done_trend/")
+s = set()
+for fn in w:
+    s.add(extract_speaker_file_name(fn))
+print(sorted(list(s)))
+s1 = set()
+for fn in f:
+    s1.add(extract_speaker_file_name(fn))
+print(s1)
 # speaker_file_dict = {"panel": "SWG_panel_speakers_24apr2020.csv", "trend": "SWG_trend_speakers_24apr2020.csv", "twin": "SWG_twin_speakers_24apr2020.csv"}
-
-# speaker files are inside the working directory. or another folder?
-
-
-
-
+# downloads_directory = "zips"  # name of the directory where all the downloaded files are. It can contain sub-directories.
+# file_type = ".eaf"
+# # speaker files are inside the working directory. or another folder?
+# speakers = ["panel", "trend", "twin"]
+# files_paths = get_file_paths(downloads_directory, filetype=file_type)
 # speaker_files = [speaker_file_dict[s] for s in speakers]
 # trans_id_speaker_dict = read_speakers(speaker_files)
 # match_file_speaker(working_directory, downloads_directory, trans_id_speaker_dict, files_paths, file_type)
 
 # check pairs: .wav, .TextGird
 
-# match_file_pair('.wav', '.TextGrid', 'twin')
+# match_file_pair('.TextGrid', '.Formant', 'done_trend')
 
 
 # def file_manipulation_pipeline(working_directory, downloads_directory, file_type, speakers=speakers,

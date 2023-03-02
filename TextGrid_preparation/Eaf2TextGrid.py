@@ -13,9 +13,9 @@ if __name__ == '__main__':
     # change things here
     # later change this to relative path
     common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
-    # elans_tgs = {common_path+'twin_elan/':common_path+'twin_tg/', common_path+'trend_elan/':common_path+'trend_tg/',
-    #          common_path+'panel_elan/1982/':common_path+'recovery_1982/', common_path+'panel_elan/2017/':common_path+'recovery_2017/'}
-    elans_tgs = {common_path+'trend_elan/':common_path+'trend_tg/'}
+    elans_tgs = {common_path+'twin_elan/':common_path+'twin_tg/', common_path+'trend_elan/':common_path+'trend_tg/',
+             common_path+'panel_elan/1982/':common_path+'recovery_1982/', common_path+'panel_elan/2017/':common_path+'recovery_2017/'}
+    # elans_tgs = {common_path+'trend_elan/':common_path+'trend_tg/'}
     unprocessed_path = '/Users/gaozhuge/PycharmProjects/swg/personal_info_removal/unprocessed_file/'
     selected_tier = ['SWG']  # put the selected tiers' name here , 'ITW', 'STY', 'TOP', 'INT'
     '''if you want to keep all tiers, leave it as an empty list: tier_selected = []

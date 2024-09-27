@@ -3,7 +3,7 @@ import re
 import argparse
 
 
-def find_special_character(path):
+def find_special_character(path): # find the special characters in the TextGrid files
     tg_list = os.listdir(path)
     tg = filter(lambda tg: re.search(r'\.TextGrid', tg), tg_list)
     list_tg = list(tg)
@@ -26,7 +26,7 @@ def find_special_character(path):
     # isalphanum() does not find the special characters
 
 
-def find_skip_label(path):  # simplify it
+def find_skip_label(path):  # find the tags and check if they are valid and in pairs.
     tag_pattern = re.compile("\[[^\[\]]*\]")
     tags = ["[BEGIN-READING]", "[END-READING]", "[BEGIN-WORD-LISTS]", "[END-WORD-LISTS]", "[BEGIN-WORD-GAMES]", "[END-WORD-GAMES]"]
     tag_pairs = [("[BEGIN-READING]", "[END-READING]"), ("[BEGIN-WORD-LISTS]", "[END-WORD-LISTS]"), ("[BEGIN-WORD-GAMES]", "[END-WORD-GAMES]")]
@@ -49,18 +49,19 @@ def find_skip_label(path):  # simplify it
                     else:  # if there is no matching
                         print("Incorrect tag: ']' might be missing!")
                         print(tg, ": " + line)
+                        print("")
             # check if the tags are in pair
             if (len(tag_in_file) % 2) != 0:
                 print("Missing tag：")
                 print(tg)
-                print("tags in file: ", tag_in_file)
+                # print("tags in file: ", tag_in_file)
             # check if it tags are correctly nested
             itr = iter(tag_in_file)
             for t in zip(itr, itr):  # turn list of tags into list of tag pairs (tuples).
                 if t not in tag_pairs:
-                    print("Incorrect tag pair!")
+                    print("Incorrect tag pair in file:")
                     print(tg, ": " + str(t))
-                    print("tags in file: ", tag_in_file)
+                    # print("tags in file: ", tag_in_file)
             file.close()
 
         except FileNotFoundError:
@@ -72,7 +73,6 @@ def find_rel_label(path):
     tg_list = [p for p in os.listdir(path) if p.endswith('.TextGrid')] # sort the lists
     tag_pattern = re.compile("\[[^\[\]\d]*\]")
     for tg in tg_list:
-
         with open('{}/{}'.format(path, tg), "r") as file:
             tag_in_file = [] # dict tg: tags_list
             for line in file:
@@ -88,9 +88,9 @@ def find_rel_label(path):
 if __name__ == '__main__':
     # PUT path in a list
     common_path = '/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/'
-    textgrids_path = [common_path + 'twin_tg/', common_path + 'trend_tg/']
+    textgrids_path = [common_path+'trend/TextGrid/', common_path+'panel/TextGrid/1982/', common_path+'panel/TextGrid/2017/'] # this is a list of paths containing TextGrids
 
     # print which path is being processed
     for path in textgrids_path:
-        find_rel_label(path)  # skip rel
+        # find_rel_label(path)
         find_skip_label(path)

@@ -7,7 +7,10 @@ import string
 import traceback
 
 import textgrid
-from SWG_utils import compile_pattern, timestamp_convert, output_clauses_csv, create_clauses_csv, tags_for_skipping
+from ordered_set import OrderedSet
+
+from SWG_utils import compile_pattern, timestamp_convert, output_clauses_csv, create_clauses_csv, tags_for_skipping, \
+    get_gehen_variants, tags_to_type
 
 
 # TODO: change this class structure. Make it easier to change
@@ -16,13 +19,29 @@ from SWG_utils import compile_pattern, timestamp_convert, output_clauses_csv, cr
 
 # TODO: does it makes sense to keep this tag in each extract class? or only keep it in one place so modifying it
 #  would be easy.
-def create_clauses_extract(extract_path, tg_path, lex_table,
+def create_clauses_extract(extract_path, tg_paths, lex_table,
                            pos_tagger):
     # TODO: tg_path, what about panel with more than one tg path. process one tg directory at a time. will it be
     #  appended to the existing extract? I think so.
-    if not os.path.exists(extract_path):  # if the csv does not exist, create the csv
-        create_clauses_csv(extract_path)
-    TextGrid_file_list = [file for file in os.listdir(tg_path) if file.endswith('.TextGrid')]
+    create_clauses_csv(extract_path)
+    TextGrid_file_list = []
+    for path in tg_paths: # get all the TextGrid files in the list of paths
+        TextGrid_file_list.extend([os.path.join(path, file) for file in os.listdir(path) if file.endswith('.TextGrid')])
+    # TextGrid_file_list = [file for file in os.listdir(tg_path) if file.endswith()]
+    # sort the TextGrid files by year, then by session, then by file number
+    if 'panel' in extract_path:
+        TextGrid_file_list = sorted(TextGrid_file_list, key=lambda path: (
+            int(path.split('/')[-2]),  # Sort based on '1982', '2017', etc.
+            int(path.split('S')[1].split('-')[0]),  # Sort based on '007', '008', etc.
+            int(path.split('-')[3])  # Sort based on '-1-', '-2-', etc.
+            ))
+    else:
+        TextGrid_file_list = sorted(TextGrid_file_list, key=lambda path: (
+            int(path.split('-')[1]),  # Sort based on '-82-', '-17-', etc.
+            int(path.split('S')[1].split('-')[0]),  # Sort based on '007', '008', etc.
+            int(path.split('-')[3])  # Sort based on '-1-', '-2-', etc.
+            ))
+    print(TextGrid_file_list)
     punct = [',', '.', '!', '?']  # maybe just . ! ?, for
 
     variant_match = dict()
@@ -36,12 +55,7 @@ def create_clauses_extract(extract_path, tg_path, lex_table,
         else:
             print(v_pattern)  # add it? no
         variant_match[v_pattern].append(r)
-    gehen_variants = set()
-    locations = lex_table.loc[lex_table['word_lemma'] == 'gehen']
-    for gehen_var in zip(locations['word_variant'], locations['word_vars']):
-        if "SAF5" not in gehen_var[1]:
-            g_pattern = compile_pattern(gehen_var[0], gehen_var[1])
-            gehen_variants.add(g_pattern)
+    gehen_variants = get_gehen_variants(lex_table)
     # for gehen_row in lex_table.loc[lex_table['word_lemma'] == 'gehen']['word_variant']:
     #     # check the word_vars
     #     if not any("SAF5" in wv for wv in lex_table.loc[lex_table['word_variant'] == gehen_row]['word_vars']):
@@ -49,9 +63,11 @@ def create_clauses_extract(extract_path, tg_path, lex_table,
     #         gehen_variants.add(g_pattern)
     for each_file_name in TextGrid_file_list:  # loop through each .TextGrid
         # now combine the files of the same speakers
-        print(each_file_name)
+       # TODO: modify this to show the progress
         interval_num = 0
-        file_path = tg_path + each_file_name  # the complete path of .TextGrid file
+        file_path = each_file_name  # the complete path of .TextGrid file
+        each_file_name = each_file_name.split('/')[-1]
+        print(each_file_name)
         try:
             file_textgrid_obj = textgrid.TextGrid.fromFile(file_path)
         except UnicodeDecodeError:
@@ -68,8 +84,9 @@ def create_clauses_extract(extract_path, tg_path, lex_table,
         try:
             clauses = []
             clause_annotation = []
-            skip = False
+            # skip = False
             begin_tag = ''
+            type_label = 'interview'
             time_segment = dict()
             for each_annotation in intervals_swg:
                 annotation_mark = each_annotation.mark
@@ -77,50 +94,85 @@ def create_clauses_extract(extract_path, tg_path, lex_table,
                 # annotations
                 if not annotation_mark.strip(): continue  # skip empty ones
                 tokens = annotation_mark.split()
+                print(f"Tokens: {tokens}")
+
                 time_segment[beg_hms] = tokens
 
                 for token in tokens:
+                    # print("token", token)
                     if token in tags_for_skipping.keys():
-                        skip = True
+                        # print("found", token)
+                        # skip = True
                         begin_tag = token
-                    if not skip:
-                        if any(p in token for p in punct):  # any punctuation in punct list is present in the token
-                            if all(c in string.punctuation for c in
-                                   token):  # this is for token like ... --- and ???. All the character in this token is punctuation
-                                if not clause_annotation:  # when no token is added to the current clause
-                                    time_stamp = beg_hms
-                                clause_annotation.append(token)
-                                if len(token) > 3:  # why do I do this again, still don't know
-                                    clause_annotation.append(time_stamp)
-                                    clauses.append(clause_annotation)
-                                    clause_annotation = []
-                                continue
+                        type_label = tags_to_type[begin_tag]
+                        # print("type_label", type_label)
 
-                            word_punct_split = re.findall(
-                                r"[^\w\d\s,.!?]*\w+[^\w\d\s,.!?]*\w*[^\w\d\s,.!?]*\w*[^\w\d\s,.!?]*|[^\w\s]", token,
-                                re.UNICODE)
+                    if token in tags_for_skipping.values() and begin_tag != '':
+                        if token == tags_for_skipping[begin_tag]:
+                            # print("found end", token)
+                            # skip = False
+                            begin_tag = ''
+                            type_label = 'interview'
 
-                            for wp in word_punct_split:  # maybe to split annotations into clauses
-                                if not clause_annotation:
-                                    time_stamp = beg_hms
-                                clause_annotation.append(wp)
-                                if all(c in punct for c in wp):
-                                    clause_annotation.append(time_stamp)
-                                    clauses.append(clause_annotation)
-                                    clause_annotation = []
-                        else:
-                            if not clause_annotation:
+                    # if not skip:
+                    if any(p in token for p in punct):  # any punctuation in punct list is present in the token
+                        if all(c in string.punctuation for c in
+                               token):  # this is for token like ... --- and ???. All the character in this token is punctuation
+                            if not clause_annotation:  # when no token is added to the current clause
                                 time_stamp = beg_hms
                             clause_annotation.append(token)
-                    if token in tags_for_skipping.values() and token == tags_for_skipping[begin_tag]:  # is it working?
-                        skip = False
-                        begin_tag = ''
+                            if len(token) > 3:
+                                clause_annotation.append(type_label)
+                                clause_annotation.append(time_stamp)
+                                clauses.append(clause_annotation)
+                                # print("cl0", clause_annotation)
+                                clause_annotation = []
+                            continue
+
+                        word_punct_split = re.findall(
+                            r"[^\w\d\s,.!?]*\w+[^\w\d\s,.!?]*\w*[^\w\d\s,.!?]*\w*[^\w\d\s,.!?]*|[^\w\s]", token,
+                            re.UNICODE)
+
+                        for wp in word_punct_split:  # maybe to split annotations into clauses
+                            if not clause_annotation:
+                                time_stamp = beg_hms
+                            clause_annotation.append(wp)
+                            if all(c in punct for c in wp):
+                                clause_annotation.append(type_label)
+                                clause_annotation.append(time_stamp)
+                                clauses.append(clause_annotation)
+                                # print("cl1", clause_annotation)
+                                clause_annotation = []
+                            continue # TODO: this may not be necessary
+                    else:
+                        if not clause_annotation:
+                            time_stamp = beg_hms
+                        clause_annotation.append(token)
+                        # print("cl3", clause_annotation)
+
+                # where should this be?
+                # if token in tags_for_skipping.values() and begin_tag != '':
+                #     if token == tags_for_skipping[begin_tag]:
+                #         # print("found end", token)
+                #         # skip = False
+                #         begin_tag = ''
+                #         type_label = 'interview'
+
+            if clause_annotation:
+                clause_annotation.append(type_label)
+                clause_annotation.append(time_stamp)
+                clauses.append(clause_annotation)
+                # print("cl2", clause_annotation)
+                clause_annotation = []
+
             for cl in clauses:  # why do I need to put this into clauses, for skipping?
                 # add the time stamp and word count first
                 beg_hms = cl[-1]
+                type_label = cl[-2]
                 # print("time", beg_hms)
-                cl = cl[:-1]
-                if cl[0] not in time_segment[beg_hms]:  # closer  remaining is the punctuation problem
+                cl = cl[:-2]
+                # print("cl check", cl)
+                if cl[0] not in time_segment[beg_hms]:  # closer remaining is the punctuation problem
                     # print("cl", cl)
                     # print("time_segment[beg_hms]", time_segment[beg_hms])
                     segment_annotation = []
@@ -137,16 +189,17 @@ def create_clauses_extract(extract_path, tg_path, lex_table,
                 words_std = []
                 ddm_tags = []
                 pos_sent = []
-                words_std = []
-                ddm_tags = []
-                pos_sent = []
+                swg_vv_list = []
+                pos_vv_list = []
                 # get ddm
                 for i, word in enumerate(cl):
                     if word:  # empty word check
                         # match w with word_variant
-                        std_list = set()
-                        ddm_list = set()
-                        pos_list = set()
+                        std_list = OrderedSet()
+                        ddm_list = OrderedSet()
+                        pos_list = OrderedSet()
+                        swg_vv = []
+                        pos_vv = []
                         no_match = True
                         rel = False
                         # check for var: REL
@@ -162,7 +215,8 @@ def create_clauses_extract(extract_path, tg_path, lex_table,
                                 elif "was" in word or "wie" in word:
                                     rel_var = " RLOs"
                                 else:
-                                    rel_var = " UNK"
+                                    rel_var = ""
+
                         for p in variant_match.keys():
                             if p.search(word) is not None:  # .lower()
                                 no_match = False
@@ -173,8 +227,7 @@ def create_clauses_extract(extract_path, tg_path, lex_table,
                                         swg = swg.replace("ge", "g")  # for gespielt gspielt
                                     std = values[1].replace("*", "")
                                     std_list.add(std)
-                                    if isinstance(values[2], float) and math.isnan(
-                                            values[2]):  # check for empty var_code
+                                    if isinstance(values[2], float) and math.isnan(values[2]):  # check for empty var_code
                                         pass  # do nothing
                                     else:
                                         ddm_list.add(values[2])  # should be set
@@ -202,17 +255,25 @@ def create_clauses_extract(extract_path, tg_path, lex_table,
                                         ddm = ddm.replace("SAF5s", "")
                                         print(ddm)
                             pos = " ".join(str(p) for p in pos_list)
+                            if "VV" in pos:
+                                swg_vv.append(word.strip())
+                                pos_vv.append(pos.strip())
                         if rel:
                             ddm = ddm + rel_var
                             ddm = ddm.strip()
                     words_std.append(standard)
                     ddm_tags.append(ddm)
                     pos_sent.append(pos)
+                    swg_vv_list.append(" ".join(swg_vv))
+                    pos_vv_list.append(" ".join(pos_vv))
                 # columns
                 output_clauses_csv(extract_path, each_file_name[each_file_name.rfind("_") + 1:-9], beg_hms, sym_seq,
                                    " ".join(cl),
                                    " ".join(ddm_tags),
-                                   " ".join(pos_sent))
+                                   " ".join(pos_sent),
+                                   " ".join(swg_vv_list),
+                                   " ".join(pos_vv_list),
+                                   type_label)
                 # format the output
                 # skip the story
         except AttributeError as e:
@@ -250,7 +311,6 @@ def create_clauses_extract(extract_path, tg_path, lex_table,
 #     #  'SWG_trend_'+ extract_type + '_' + date + types: [working_directory + 'trend_tg/']}
 #     # speaker_tg_path_dict = {'SWG_style_' + extract_type + '_' + date + types: [working_directory + 'style_tg/']}
 #     speaker_tg_path_dict = {'SWG_trend_' + extract_type + '_' + date + types: [working_directory + 'trend_tg/'],
-#                             'SWG_twin_clauses_' + date + types: [working_directory + 'twin_tg/'],
 #                             'SWG_panel_clauses_' + date + types: [working_directory + 'recovery_1982/',
 #                                                                   working_directory + 'recovery_2017/']}
 #     lex_table_path = working_directory + "SG-LEX 12feb2021.csv"

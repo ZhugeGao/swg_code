@@ -6,7 +6,7 @@ import string
 import textgrid
 import traceback
 import re
-from SWG_utils import compile_pattern, word_filter, tags_for_skipping
+from SWG_utils import compile_pattern, word_filter, tags_for_skipping, get_gehen_variants
 
 # global variables
 phones_extract_path = ""
@@ -36,12 +36,7 @@ def create_phones_extract(extracts_output_path, phones_data_path, lex_table, pos
         #     print(v_pattern)
         variant_match[v_pattern].append(r)
 
-    gehen_variants = set()
-    locations = lex_table.loc[lex_table['word_lemma'] == 'gehen']
-    for gehen_var in zip(locations['word_variant'], locations['word_vars']):
-        if "SAF5" not in gehen_var[1]:
-            g_pattern = compile_pattern(gehen_var[0], gehen_var[1])
-            gehen_variants.add(g_pattern)
+    gehen_variants = get_gehen_variants(lex_table)
 
     words_h = []
     skip_begin = False
@@ -67,7 +62,9 @@ def create_phones_extract(extracts_output_path, phones_data_path, lex_table, pos
                 print(ow)
                 print(original_words)
         if tags:
+            # print(tags)
             for tag in tags:
+                # print("tag: ", tag)
                 if tag == '[REL]':
                     rel = True
                     context.append(original_words[i - 1].translate(table))
@@ -77,7 +74,9 @@ def create_phones_extract(extracts_output_path, phones_data_path, lex_table, pos
                     skip_begin = True
                     skip_begin_tag = tag
                 elif tag in tags_for_skipping.values():
-                    if tag == tags_for_skipping[skip_begin_tag]:
+                    if skip_begin_tag == "":
+                        print("Skip tag not detected for end tag:", tag)
+                    elif tag == tags_for_skipping[skip_begin_tag]:
                         print(each_tg_file_name)
                         print("Skipping:", tag)
                         skip_begin = False  # this will not skip the file which contains the end tag
@@ -146,10 +145,10 @@ def create_phones_extract(extracts_output_path, phones_data_path, lex_table, pos
                         elif ("was" in word_mark) or ("wie" in word_mark) or ("wer" in word_mark):
                             rel_var = " RLOs"
                         else:
-                            rel_var = " UNK"
+                            rel_var = ""
 
                 std_list = set()
-                ddm_list = set()
+                ddm_list = set() # TODO: consider update it to an ordered set like in word_extract
                 pos_list = set()
                 lemma_list = set()
                 stem_list = set()

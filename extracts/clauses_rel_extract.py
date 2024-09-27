@@ -7,7 +7,7 @@ import traceback
 import string
 import pandas as pd
 
-from SWG_utils import compile_pattern, timestamp_convert, output_clauses_csv, create_clauses_csv
+from SWG_utils import compile_pattern, timestamp_convert, output_clauses_csv, create_clauses_csv, get_gehen_variants
 
 
 def read_lex_table(lex_table_path):  # TODO: is this necessary? at all? check the other available read_lex_table method
@@ -39,12 +39,7 @@ def create_rel_clauses_extract(extract_path, tg_path, lex_table, pos_tagger):
         else:
             print(v_pattern)  # add it? no
         variant_match[v_pattern].append(r)
-    gehen_variants = set()
-    locations = lex_table.loc[lex_table['word_lemma'] == 'gehen']
-    for gehen_var in zip(locations['word_variant'], locations['word_vars']):
-        if "SAF5" not in gehen_var[1]:
-            g_pattern = compile_pattern(gehen_var[0], gehen_var[1])
-            gehen_variants.add(g_pattern)
+    gehen_variants = get_gehen_variants(lex_table)
     # for gehen_row in lex_table.loc[lex_table['word_lemma'] == 'gehen']['word_variant']:
     #     # check the word_vars
     #     if not any("SAF5" in wv for wv in lex_table.loc[lex_table['word_variant'] == gehen_row]['word_vars']):
@@ -155,7 +150,7 @@ def create_rel_clauses_extract(extract_path, tg_path, lex_table, pos_tagger):
                                     elif ("was" in word) or ("wie" in word) or ("wer" in word):
                                         rel_var = " RLOs"
                                     else:
-                                        rel_var = " UNK"
+                                        rel_var = ""
                             for p in variant_match.keys():
                                 if p.search(word) is not None:  # .lower()
                                     no_match = False

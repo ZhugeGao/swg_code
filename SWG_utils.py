@@ -2,17 +2,22 @@
 import datetime
 import math
 import re
+from typing import List, Tuple
 
 import pandas as pd
 import regex
 import os
 import csv
+import glob
 import spacy
 from ordered_set import OrderedSet
+import textgrid
+import pympi
+import traceback
 
 
 
-working_directory = "/Users/gaozhuge/Documents/Tuebingen_Uni/hiwi_swg/DDM/"  # name of the directory where all the swg data and processing is happening
+working_directory = "/Users/zhugegao/Documents/SWG/"  # name of the directory where all the swg data and processing is happening
 
 # Global variables
 double_dash = re.compile(r'^-[a-zA-ZäöüÄÖÜßÔûôÊĩÂâõẽãÃêàéëî?]+-[,.!?]*$')
@@ -39,17 +44,108 @@ tags_to_type = {'[BEGIN-READING]': 'reading', '[BEGIN-WORD-LISTS]': 'word_lists'
 all_speaker_paths = [working_directory + "panel/TextGrid/1982/", working_directory + "panel/TextGrid/2017/",
                      working_directory + "trend/TextGrid/"] # , working_directory + "style/TextGrid/"
 
+# three methods for inspecting TextGrid files
 
+def find_special_character(path): # find the special characters in the TextGrid files
+    tg_list = os.listdir(path)
+    tg = filter(lambda tg: re.search(r'\.TextGrid', tg), tg_list)
+    list_tg = list(tg)
+    special = set()
+    character_pattern = re.compile(r'[a-zA-ZäöüÄÖÜßÔûôÊĩÂâõẽãÃêàéëî]')
+    for tg in list_tg:
+        try:
+            file = open('{}/{}'.format(path, tg), "r")
+            for line in file:
+                for char in line:
+                    if not re.search(character_pattern, char):
+                        special.add(char)
+            file.close()
+        except FileNotFoundError:
+            print(tg, "not found!")
+            continue
+    print(len(special))
+    for char in list(special):
+        print(char)
+    # isalphanum() does not find the special characters
+
+
+def find_skip_label(path):  # find the tags and check if they are valid and in pairs.
+    tag_pattern = re.compile("\[[^\[\]]*\]")
+    tags = list(tags_for_skipping.keys()) + list(tags_for_skipping.values())
+    tag_pairs = list(tags_for_skipping.items())
+    print("Checking tags in: ", path)
+    tg_list = os.listdir(path)
+    tg = filter(lambda tg: re.search(r'\.TextGrid', tg), tg_list)
+    list_tg = list(tg) # sort the list
+    for tg in list_tg:
+        try:
+            file = open('{}/{}'.format(path, tg), "r")
+            tag_in_file = []
+            for line in file:
+                if "[BEGIN" in line or "[END" in line:
+                    match = re.search(tag_pattern, line)
+                    if match:
+                        tag = match.group(0)  # get the [] tag
+                        tag_in_file.append(tag)
+                        if tag not in tags:
+                            print("Incorrect tag：")
+                            print(tg, ": " + line)
+                    else:  # if there is no matching
+                        print("Incorrect tag: ']' might be missing!")
+                        print(tg, ": " + line)
+                        print("")
+            
+            # Check tags in chronological order
+            stack = []
+            for i, tag in enumerate(tag_in_file):
+                if tag in tags_for_skipping.keys():  # If it's a BEGIN tag
+                    stack.append(tag)
+                elif tag in tags_for_skipping.values():  # If it's an END tag
+                    if not stack:
+                        print(f"Unexpected END tag: {tag} at position {i}")
+                        print(tg)
+                    elif tags_for_skipping[stack[-1]] != tag:
+                        print(f"Mismatched tags: Expected {tags_for_skipping[stack[-1]]}, but got {tag} at position {i}")
+                        print(tg)
+                    else:
+                        stack.pop()
+            
+            if stack:
+                print("Missing END tags:")
+                print(tg)
+                print(f"Tags in file: {tag_in_file}")
+                print(f"Missing: {[tags_for_skipping[tag] for tag in stack]}")
+            
+            file.close()
+        
+        except FileNotFoundError:
+            print(tg, "not found!")
+            continue
+
+def find_rel_label(path):
+    tg_list = [p for p in os.listdir(path) if p.endswith('.TextGrid')] # sort the lists
+    tag_pattern = re.compile("\[[^\[\]\d]*\]")
+    for tg in tg_list:
+        with open('{}/{}'.format(path, tg), "r") as file:
+            tag_in_file = [] # dict tg: tags_list
+            for line in file:
+                match = re.findall(tag_pattern, line)
+                if match:
+                    tag_in_file.extend(match)
+                elif "REL" in line or "ANT" in line:
+                    print(tg)
+                    print(line)
+        # print(tag_in_file)
 
 # csv methods for clauses and rel_clauses extract
-def output_clauses_csv(extract_path, transcript_id, beg_hms, sym_seq, swg, var, pos, swg_vv, pos_vv, type_label):
+def output_clauses_csv(extract_path, transcript_id, beg_hms, sym_seq, swg, var, pos, swg_vv, pos_vv, type_label, top_text):
     with open(extract_path, mode='a', newline="") as output_file:
         csv_writer = csv.writer(
             output_file,
             delimiter=',',
             quotechar='"',
             quoting=csv.QUOTE_MINIMAL)
-        csv_writer.writerow([transcript_id, beg_hms, sym_seq, swg, var, pos, swg_vv, pos_vv, type_label])
+        csv_writer.writerow([transcript_id, beg_hms, sym_seq, swg, var, pos, swg_vv, pos_vv, type_label, top_text])
 
 
 def create_clauses_csv(extract_path):
@@ -64,7 +160,7 @@ def create_clauses_csv(extract_path):
             quotechar='"',
             quoting=csv.QUOTE_MINIMAL)
         csv_writer.writerow(
-            ['trans_id', 'beg_hms', 'sym_seq', 'swg_clause', 'VAR', 'POS', 'swg_vv', 'pos_vv', 'speech_genre'])  # File_ID to Transcript_ID
+            ['trans_id', 'beg_hms', 'sym_seq', 'swg_clause', 'VAR', 'POS', 'swg_vv', 'pos_vv', 'speech_genre', 'swg_topic'])  # File_ID to Transcript_ID
     create_the_csv.close()
 
 
@@ -445,7 +541,7 @@ def read_lex_table(lex_table_path):
 #     return outputs
 
 
-def skip_by_tags(outputs, type):
+def skip_by_tags(outputs, type): # TODO: rename the function to indicate that it's to get the type_label
     start_index = -1
     end_index = -1
     if type == 'r':
@@ -468,12 +564,12 @@ def skip_by_tags(outputs, type):
             end_index = i
 
     if start_index != -1 and end_index != -1:
-        # Change the last element in the outputs list to the corresponding type_label
+        # Change the second to last element in the outputs list to the corresponding type_label
         # print("before: ", outputs[start_index:end_index + 1])
 
         # last_output = outputs[start_index:end_index + 1][-1]
         for i in range(start_index, end_index):
-            outputs[i][-1] = type_label
+            outputs[i][-2] = type_label
         outputs = outputs[:start_index] + outputs[start_index+1:end_index] + outputs[end_index+1:] # remove the first and last label
         # print("after: ", outputs[start_index:end_index + 1])
         # print("entire: ", outputs)
@@ -533,9 +629,17 @@ def skip_word_list(outputs, word_list_start, word_list_end, type):  # what does 
 
 
 def timestamp_convert(ts):
-    ts_list = str(ts).split('.')
-    remaining_seconds = int(ts_list[0])
-    ms = int(ts_list[1])
+    if ts < 0:
+        ts = 0  # Handle negative case just in case
+
+    # Separate the integer and fractional parts of the seconds
+    fractional_seconds, integer_seconds = math.modf(ts)
+
+    # Convert fractional seconds to microseconds
+    microseconds = int(round(fractional_seconds * 1_000_000))
+
+    remaining_seconds = int(integer_seconds)
+
     hour = 0
     minute = 0
     if remaining_seconds >= 3600:
@@ -546,7 +650,8 @@ def timestamp_convert(ts):
         remaining_seconds = remaining_seconds - (minute * 60)
     second = remaining_seconds
     # could try gmtime or other python time function
-    timestamp = datetime.time(hour, minute, second, ms).strftime('%H:%M:%S.%f')  # [:-3] if use this, the clauses extract would not work.
+    # The fourth argument to datetime.time is microseconds
+    timestamp = datetime.time(hour, minute, second, microseconds).strftime('%H:%M:%S.%f')
     # print(timestamp)
     return timestamp
 
@@ -577,3 +682,213 @@ def word_filter(word_raw):
         else:
             word_nopunct.append(word)
     return word_nopunct
+
+def validate_textgrid_file(file_path: str) -> bool:
+    """
+    Validate TextGrid file format before attempting to parse.
+    
+    Args:
+        file_path (str): Path to TextGrid file
+        
+    Returns:
+        bool: True if file appears valid, False otherwise
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            first_line = f.readline().strip()
+            if not first_line == 'File type = "ooTextFile"':
+                print(f"Invalid TextGrid header in {file_path}")
+                return False
+                
+            second_line = f.readline().strip()
+            if not second_line == 'Object class = "TextGrid"':
+                print(f"Invalid TextGrid object class in {file_path}")
+                return False
+                
+            return True
+            
+    except Exception as e:
+        print(f"Error validating {file_path}: {str(e)}")
+        return False
+
+def validate_textgrid_content(file_path: str) -> bool:
+    """
+    Check if file has valid TextGrid content.
+    
+    Args:
+        file_path (str): Path to TextGrid file
+        
+    Returns:
+        bool: True if file has valid TextGrid format, False otherwise
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            first_lines = [next(f).strip() for _ in range(2)]
+            return (first_lines[0] == 'File type = "ooTextFile"' and 
+                   first_lines[1] == 'Object class = "TextGrid"')
+    except Exception as e:
+        print(f"Error validating {file_path}: {str(e)}")
+        return False
+
+def read_textgrid_and_match_tiers(file_path: str, overlap_threshold: float = 0.7) -> List[Tuple[str, str, float, float]]:
+    """
+    Read TextGrid file and match intervals between SWG and TOP tiers based on overlap.
+    If no TOP tier exists, returns SWG intervals with empty TOP text.
+    
+    Args:
+        file_path (str): Path to TextGrid file
+        overlap_threshold (float): Minimum overlap required to match intervals (0-1)
+    
+    Returns:
+        List[Tuple[str, str, float, float]]: List of matched intervals (swg_text, top_text, start_time, end_time)
+    """
+    # Validate file before processing
+    if not validate_textgrid_file(file_path):
+        print(f"Skipping invalid TextGrid file: {file_path}")
+        return []
+        
+    try:
+        # Try to read file with different encodings
+        for encoding in ['utf-8', 'utf-16', 'latin1', 'cp1252']:
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    tg = textgrid.TextGrid.fromFile(file_path)
+                break
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                print(f"Error reading {file_path} with {encoding} encoding: {str(e)}")
+                continue
+        else:
+            print(f"Could not read {file_path} with any supported encoding")
+            return []
+
+        swg_tier = None
+        top_tier = None
+        
+        # Find SWG and TOP tiers
+        for tier in tg.tiers:
+            if tier.name == 'SWG':
+                swg_tier = tier
+            elif tier.name == 'TOP':
+                top_tier = tier
+            if swg_tier and top_tier:
+                break
+                
+        if not swg_tier:
+            print(f"No SWG tier found in {file_path}")
+            return []
+            
+        matched_intervals = []
+        
+        if not top_tier:
+            # If no TOP tier, just return SWG intervals with empty TOP text
+            print(f"No TOP tier found in {file_path}, processing SWG tier only")
+            for swg_interval in swg_tier:
+                if not swg_interval.mark.strip():  # Skip empty intervals
+                    continue
+                matched_intervals.append((
+                    swg_interval.mark,
+                    "",  # Empty TOP text
+                    swg_interval.minTime,
+                    swg_interval.maxTime
+                ))
+            return matched_intervals
+
+        # If we have both tiers, do the matching
+        top_idx = 0
+        top_len = len(top_tier)
+        
+        # For each SWG interval, find matching TOP interval
+        for swg_interval in swg_tier:
+            if not swg_interval.mark.strip():  # Skip empty intervals
+                continue
+                
+            swg_start = swg_interval.minTime
+            swg_end = swg_interval.maxTime
+            swg_duration = swg_end - swg_start
+            
+            # Look for overlapping TOP interval
+            while top_idx < top_len:
+                top_interval = top_tier[top_idx]
+                
+                # If TOP interval is past current SWG interval, move to next SWG
+                if top_interval.minTime > swg_end:
+                    break
+                    
+                # Calculate overlap
+                overlap_start = max(swg_start, top_interval.minTime)
+                overlap_end = min(swg_end, top_interval.maxTime)
+                
+                if overlap_end > overlap_start:  # If there is overlap
+                    overlap_duration = overlap_end - overlap_start
+                    overlap_ratio = overlap_duration / swg_duration
+                    
+                    if overlap_ratio >= overlap_threshold:
+                        matched_intervals.append((
+                            swg_interval.mark,
+                            top_interval.mark or "",  # Use empty string for empty marks
+                            swg_start,
+                            swg_end
+                        ))
+                        break
+                
+                # Move to next TOP interval if current one ends before SWG interval
+                if top_interval.maxTime < swg_end:
+                    top_idx += 1
+                else:
+                    break
+
+        return matched_intervals
+
+    except Exception as e:
+        print(f"Error processing {file_path}: {str(e)}")
+        traceback.print_exc()
+        return []
+
+def clean_empty_column_rows(extract_path: str, column_name: str, output_path: str = None) -> pd.DataFrame:
+    """
+    Read an extract CSV and remove rows where specified column is empty.
+    
+    Args:
+        extract_path (str): Path to the extract CSV file
+        column_name (str): Name of the column to check for empty values
+        output_path (str, optional): Path to save cleaned CSV. If None, returns DataFrame without saving
+        
+    Returns:
+        pd.DataFrame: Cleaned DataFrame with empty rows removed
+        
+    Example:
+        # Remove rows where 'word_lemma' is empty
+        clean_df = clean_empty_column_rows('path/to/extract.csv', 'word_lemma', 'path/to/output.csv')
+    """
+    try:
+        # Read the CSV file
+        df = pd.read_csv(extract_path, encoding='utf-8', keep_default_na=False)
+        
+        # Verify column exists
+        if column_name not in df.columns:
+            raise ValueError(f"Column '{column_name}' not found in the extract")
+            
+        # Get initial row count
+        initial_count = len(df)
+        
+        # Remove rows where the specified column is empty
+        df = df[df[column_name].str.strip() != '']
+        
+        # Get number of rows removed
+        removed_count = initial_count - len(df)
+        
+        print(f"Removed {removed_count} rows with empty values in column '{column_name}'")
+        print(f"Remaining rows: {len(df)}")
+        
+        # Save to file if output path specified
+        if output_path:
+            df.to_csv(output_path, index=False)
+            print(f"Saved cleaned extract to: {output_path}")
+            
+        return df
+        
+    except Exception as e:
+        print(f"Error processing extract: {str(e)}")
+        raise

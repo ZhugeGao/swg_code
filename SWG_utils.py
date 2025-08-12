@@ -15,10 +15,6 @@ import textgrid
 import pympi
 import traceback
 
-
-
-working_directory = "/Users/zhugegao/Documents/SWG/"  # name of the directory where all the swg data and processing is happening
-
 # Global variables
 double_dash = re.compile(r'^-[a-zA-ZäöüÄÖÜßÔûôÊĩÂâõẽãÃêàéëî?]+-[,.!?]*$')
 dash_l = re.compile(r'^-[a-zA-ZäöüÄÖÜßÔûôÊĩÂâõẽãÃêàéëî]+-?[,.!?]*$')
@@ -40,9 +36,6 @@ filter_list = [angle_brackets, person_name_l, person_name_r, hyphen, hyphen_2, h
 tags_for_skipping = {'[BEGIN-READING]': '[END-READING]', '[BEGIN-WORD-LISTS]': '[END-WORD-LISTS]',
                      '[BEGIN-WORD-GAMES]': '[END-WORD-GAMES]'}
 tags_to_type = {'[BEGIN-READING]': 'reading', '[BEGIN-WORD-LISTS]': 'word_lists', '[BEGIN-WORD-GAMES]': 'word_games'}
-
-all_speaker_paths = [working_directory + "panel/TextGrid/1982/", working_directory + "panel/TextGrid/2017/",
-                     working_directory + "trend/TextGrid/"] # , working_directory + "style/TextGrid/"
 
 # three methods for inspecting TextGrid files
 
